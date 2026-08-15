@@ -3,7 +3,13 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import os from "node:os";
 import path from "node:path";
-import { buildSingleTrackContent, sha256File, uploadSingleTrack } from "./media.ts";
+import {
+  buildPlaylistContent,
+  buildSingleTrackContent,
+  sha256File,
+  uploadPlaylist,
+  uploadSingleTrack,
+} from "./media.ts";
 
 test("sha256File returns a base64url SHA-256 digest", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "zoto-media-hash-"));
@@ -31,8 +37,35 @@ test("buildSingleTrackContent creates a one-chapter music playlist", () => {
   assert.equal(content.title, "Playlist title");
   assert.equal(content.metadata.category, "music");
   assert.equal(content.content.chapters.length, 1);
-  assert.equal(content.content.chapters[0]?.tracks[0]?.title, "Track title");
+  assert.equal(content.content.chapters[0]?.tracks[0]?.title, "Playlist title");
   assert.equal(content.content.chapters[0]?.tracks[0]?.trackUrl, "yoto:#transcoded-hash");
+});
+
+test("buildPlaylistContent creates one ordered chapter per track and aggregates media", () => {
+  const content = buildPlaylistContent("Album", [
+    {
+      track: { filePath: "/two.mp3", title: "Second", order: 2 },
+      audio: {
+        transcodedSha256: "hash-2",
+        transcodedInfo: { duration: 20, fileSize: 200, format: "mp3" },
+      },
+    },
+    {
+      track: { filePath: "/one.mp3", title: "First", order: 1 },
+      audio: {
+        transcodedSha256: "hash-1",
+        transcodedInfo: { duration: 10, fileSize: 100, format: "mp3" },
+      },
+    },
+  ]) as {
+    content: { chapters: Array<{ key: string; title: string }> };
+    metadata: { media: { duration: number; fileSize: number } };
+  };
+  assert.deepEqual(content.content.chapters.map(({ key, title }) => ({ key, title })), [
+    { key: "01", title: "Second" },
+    { key: "02", title: "First" },
+  ]);
+  assert.deepEqual(content.metadata.media, { duration: 30, fileSize: 300 });
 });
 
 test("uploadSingleTrack uploads, polls, and creates content", async (t) => {
@@ -113,4 +146,46 @@ test("uploadSingleTrack skips PUT when Yoto already has the source file", async 
     fetch: fetchMock,
   });
   assert.ok(!methods.includes("PUT"));
+});
+
+test("uploadPlaylist sorts LocalTracks and creates one multi-track content object", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "zoto-media-playlist-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const first = path.join(directory, "first.mp3");
+  const second = path.join(directory, "second.mp3");
+  await Promise.all([writeFile(first, "first"), writeFile(second, "second")]);
+  let uploadNumber = 0;
+  let createdBody: { content: { chapters: Array<{ title: string }> } } | undefined;
+  const fetchMock: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/uploadUrl")) {
+      uploadNumber++;
+      return Response.json({
+        upload: { uploadUrl: `https://uploads.example/${uploadNumber}`, uploadId: `id-${uploadNumber}` },
+      });
+    }
+    if (url.startsWith("https://uploads.example/")) return new Response(null, { status: 200 });
+    if (url.includes("/transcoded")) {
+      const id = url.includes("id-1") ? "1" : "2";
+      return Response.json({
+        transcode: {
+          transcodedSha256: `hash-${id}`,
+          transcodedInfo: { duration: Number(id) * 10, fileSize: Number(id) * 100, format: "mp3" },
+        },
+      });
+    }
+    createdBody = JSON.parse(String(init?.body));
+    return Response.json({ card: { cardId: "Multi", title: "Album" } });
+  };
+
+  await uploadPlaylist({
+    tracks: [
+      { filePath: second, title: "Second", order: 2 },
+      { filePath: first, title: "First", order: 1 },
+    ],
+    title: "Album",
+    getAccessToken: async () => "token",
+    fetch: fetchMock,
+  });
+  assert.deepEqual(createdBody?.content.chapters.map((chapter) => chapter.title), ["First", "Second"]);
 });

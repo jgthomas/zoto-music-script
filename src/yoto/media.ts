@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream, openAsBlob } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
+import type { LocalTrack } from "../tracks.ts";
 
 const API_URL = "https://api.yotoplay.com";
 
@@ -35,6 +36,21 @@ export interface UploadOptions {
   sleep?: (milliseconds: number) => Promise<void>;
   maxPollAttempts?: number;
   callbacks?: UploadCallbacks;
+}
+
+export interface PlaylistUploadOptions {
+  tracks: LocalTrack[];
+  title: string;
+  getAccessToken: () => Promise<string>;
+  fetch?: typeof fetch;
+  sleep?: (milliseconds: number) => Promise<void>;
+  maxPollAttempts?: number;
+  callbacks?: UploadCallbacks;
+}
+
+interface UploadedTrack {
+  track: LocalTrack;
+  audio: TranscodedAudio;
 }
 
 interface UploadUrlResponse {
@@ -87,12 +103,13 @@ function validateTranscodedAudio(value: Partial<TranscodedAudio>): TranscodedAud
 }
 
 async function requestUploadUrl(
-  options: UploadOptions,
+  options: PlaylistUploadOptions,
+  filePath: string,
   sourceSha256: string,
 ): Promise<{ uploadUrl: string | null; uploadId: string }> {
   const url = new URL("/media/transcode/audio/uploadUrl", API_URL);
   url.searchParams.set("sha256", sourceSha256);
-  url.searchParams.set("filename", path.basename(options.filePath));
+  url.searchParams.set("filename", path.basename(filePath));
   const response = await (options.fetch ?? fetch)(url, {
     headers: {
       Authorization: `Bearer ${await options.getAccessToken()}`,
@@ -107,8 +124,12 @@ async function requestUploadUrl(
   return { uploadUrl: result.upload.uploadUrl, uploadId: result.upload.uploadId };
 }
 
-async function uploadFile(options: UploadOptions, uploadUrl: string): Promise<void> {
-  const blob = await openAsBlob(options.filePath, { type: "audio/mpeg" });
+async function uploadFile(
+  options: PlaylistUploadOptions,
+  filePath: string,
+  uploadUrl: string,
+): Promise<void> {
+  const blob = await openAsBlob(filePath, { type: "audio/mpeg" });
   const response = await (options.fetch ?? fetch)(uploadUrl, {
     method: "PUT",
     headers: { "Content-Type": "audio/mpeg" },
@@ -118,7 +139,7 @@ async function uploadFile(options: UploadOptions, uploadUrl: string): Promise<vo
 }
 
 async function waitForTranscode(
-  options: UploadOptions,
+  options: PlaylistUploadOptions,
   uploadId: string,
 ): Promise<TranscodedAudio> {
   const fetchImpl = options.fetch ?? fetch;
@@ -150,55 +171,67 @@ async function waitForTranscode(
   throw new Error("Yoto transcoding timed out");
 }
 
-export function buildSingleTrackContent(title: string, audio: TranscodedAudio): object {
-  const info = audio.transcodedInfo;
-  const trackTitle = info.metadata?.title?.trim() || title;
+export function buildPlaylistContent(title: string, uploadedTracks: UploadedTrack[]): object {
+  if (uploadedTracks.length === 0) throw new Error("Cannot build an empty Yoto playlist");
+  const keyWidth = Math.max(2, String(uploadedTracks.length).length);
+  const chapters = uploadedTracks.map(({ track, audio }, index) => {
+    const info = audio.transcodedInfo;
+    const key = String(index + 1).padStart(keyWidth, "0");
+    const overlayLabel = String(index + 1);
+    return {
+      key,
+      title: track.title,
+      overlayLabel,
+      ambient: null,
+      availableFrom: null,
+      defaultTrackAmbient: null,
+      defaultTrackDisplay: null,
+      duration: info.duration,
+      fileSize: info.fileSize,
+      display: { icon16x16: null },
+      tracks: [
+        {
+          key,
+          uid: "",
+          title: track.title,
+          trackUrl: `yoto:#${audio.transcodedSha256}`,
+          duration: info.duration,
+          fileSize: info.fileSize,
+          channels: info.channels,
+          format: info.format,
+          type: "audio",
+          overlayLabel,
+          ambient: null,
+          display: null,
+        },
+      ],
+    };
+  });
+  const duration = uploadedTracks.reduce((total, item) => total + item.audio.transcodedInfo.duration, 0);
+  const fileSize = uploadedTracks.reduce((total, item) => total + item.audio.transcodedInfo.fileSize, 0);
   return {
     title,
     content: {
-      chapters: [
-        {
-          key: "01",
-          title: trackTitle,
-          overlayLabel: "1",
-          ambient: null,
-          availableFrom: null,
-          defaultTrackAmbient: null,
-          defaultTrackDisplay: null,
-          duration: info.duration,
-          fileSize: info.fileSize,
-          display: { icon16x16: null },
-          tracks: [
-            {
-              key: "01",
-              uid: "",
-              title: trackTitle,
-              trackUrl: `yoto:#${audio.transcodedSha256}`,
-              duration: info.duration,
-              fileSize: info.fileSize,
-              channels: info.channels,
-              format: info.format,
-              type: "audio",
-              overlayLabel: "1",
-              ambient: null,
-              display: null,
-            },
-          ],
-        },
-      ],
+      chapters,
       config: { resumeTimeout: 2_592_000 },
       playbackType: "linear",
     },
     metadata: {
       category: "music",
-      media: { duration: info.duration, fileSize: info.fileSize },
+      media: { duration, fileSize },
     },
   };
 }
 
+export function buildSingleTrackContent(title: string, audio: TranscodedAudio): object {
+  return buildPlaylistContent(title, [
+    { track: { filePath: "", title, order: 1 }, audio },
+  ]);
+}
+
 async function createContent(
-  options: UploadOptions,
-  audio: TranscodedAudio,
+  options: PlaylistUploadOptions,
+  uploadedTracks: UploadedTrack[],
 ): Promise<CreatedContent> {
   const response = await (options.fetch ?? fetch)(new URL("/content", API_URL), {
     method: "POST",
@@ -207,7 +240,7 @@ async function createContent(
       Accept: "application/json",
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(buildSingleTrackContent(options.title, audio)),
+    body: JSON.stringify(buildPlaylistContent(options.title, uploadedTracks)),
   });
   if (!response.ok) throw await responseError(response, "Creating Yoto content");
   const result = (await response.json()) as CreateContentResponse;
@@ -216,24 +249,40 @@ async function createContent(
 }
 
 export async function uploadSingleTrack(options: UploadOptions): Promise<CreatedContent> {
-  const file = await stat(options.filePath);
-  if (!file.isFile()) throw new Error(`Not a file: ${options.filePath}`);
-  if (path.extname(options.filePath).toLowerCase() !== ".mp3") {
-    throw new Error("Phase 2 currently supports MP3 files only");
+  return uploadPlaylist({
+    ...options,
+    tracks: [{ filePath: options.filePath, title: options.title, order: 1 }],
+  });
+}
+
+export async function uploadPlaylist(options: PlaylistUploadOptions): Promise<CreatedContent> {
+  if (options.tracks.length === 0) throw new Error("At least one local track is required");
+  const tracks = [...options.tracks].sort((left, right) => left.order - right.order);
+  for (const track of tracks) {
+    const file = await stat(track.filePath);
+    if (!file.isFile()) throw new Error(`Not a file: ${track.filePath}`);
+    if (path.extname(track.filePath).toLowerCase() !== ".mp3") {
+      throw new Error(`Only MP3 files are currently supported: ${track.filePath}`);
+    }
   }
 
-  options.callbacks?.onStatus?.("hashing audio");
-  const sourceSha256 = await sha256File(options.filePath);
-  options.callbacks?.onStatus?.("requesting upload");
-  const upload = await requestUploadUrl(options, sourceSha256);
-  if (upload.uploadUrl) {
-    options.callbacks?.onStatus?.("uploading audio");
-    await uploadFile(options, upload.uploadUrl);
-  } else {
-    options.callbacks?.onStatus?.("audio already exists in Yoto media storage");
+  const uploadedTracks: UploadedTrack[] = [];
+  for (const [index, track] of tracks.entries()) {
+    const prefix = `[${index + 1}/${tracks.length}] ${track.title}:`;
+    options.callbacks?.onStatus?.(`${prefix} hashing audio`);
+    const sourceSha256 = await sha256File(track.filePath);
+    options.callbacks?.onStatus?.(`${prefix} requesting upload`);
+    const upload = await requestUploadUrl(options, track.filePath, sourceSha256);
+    if (upload.uploadUrl) {
+      options.callbacks?.onStatus?.(`${prefix} uploading audio`);
+      await uploadFile(options, track.filePath, upload.uploadUrl);
+    } else {
+      options.callbacks?.onStatus?.(`${prefix} already exists in Yoto media storage`);
+    }
+    options.callbacks?.onStatus?.(`${prefix} waiting for transcoding`);
+    const audio = await waitForTranscode(options, upload.uploadId);
+    uploadedTracks.push({ track, audio });
   }
-  options.callbacks?.onStatus?.("waiting for transcoding");
-  const transcoded = await waitForTranscode(options, upload.uploadId);
   options.callbacks?.onStatus?.("creating MYO playlist");
-  return createContent(options, transcoded);
+  return createContent(options, uploadedTracks);
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { realpathSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -9,8 +9,9 @@ import { defaultConfig } from "./config.ts";
 import { downloadVideo } from "./download.ts";
 import { DownloadManifest } from "./download-manifest.ts";
 import { probeUrl } from "./probe.ts";
+import { discoverLocalTracks } from "./tracks.ts";
 import { getAccessToken, login } from "./yoto/auth.ts";
-import { uploadSingleTrack } from "./yoto/media.ts";
+import { uploadPlaylist } from "./yoto/media.ts";
 import { FileTokenStore } from "./yoto/token-store.ts";
 
 const BOLD = "\x1b[1m";
@@ -23,7 +24,7 @@ const RESET = "\x1b[0m";
 const HELP = `${BOLD}Usage:${RESET} node src/cli.ts download [options] <url> [more-urls...]
        node src/cli.ts [options] <url> [more-urls...]
        node src/cli.ts auth <login|status|logout>
-       node src/cli.ts upload [--title TITLE] <file.mp3>
+       node src/cli.ts upload [--title TITLE] <file-or-directory> [...]
 
 ${BOLD}Options:${RESET}
   --output-dir DIR    Where MP3s are saved (default: ~/Music)
@@ -38,10 +39,10 @@ ${BOLD}Examples:${RESET}
   node src/cli.ts "https://www.youtube.com/playlist?list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI"
 `;
 
-const UPLOAD_HELP = `${BOLD}Usage:${RESET} node src/cli.ts upload [--title TITLE] <file.mp3>
+const UPLOAD_HELP = `${BOLD}Usage:${RESET} node src/cli.ts upload [--title TITLE] <file-or-directory> [...]
 
-Upload one MP3 and create a single-track playlist in your Yoto MYO library.
-The filename without its extension is used as the title by default.
+Upload MP3 files and create one playlist in your Yoto MYO library.
+Directory contents are naturally ordered; explicit file arguments retain their order.
 `;
 
 const AUTH_HELP = `${BOLD}Usage:${RESET} node src/cli.ts auth <login|status|logout>
@@ -153,17 +154,25 @@ async function runUploadCommand(args: string[]): Promise<void> {
     process.stdout.write(UPLOAD_HELP);
     return;
   }
-  if (positionals.length !== 1) throw new Error("upload requires exactly one MP3 file");
+  if (positionals.length === 0) throw new Error("upload requires an MP3 file or directory");
 
   const config = defaultConfig();
   if (!config.yotoClientId) throw new Error("YOTO_CLIENT_ID is required for Yoto uploads");
-  const filePath = path.resolve(positionals[0]);
-  const title = values.title?.trim() || path.basename(filePath, path.extname(filePath));
+  const tracks = await discoverLocalTracks(positionals);
+  const firstInput = path.resolve(positionals[0]);
+  const firstDetails = await stat(firstInput);
+  const defaultTitle = firstDetails.isDirectory()
+    ? path.basename(firstInput)
+    : positionals.length === 1
+      ? tracks[0]?.title
+      : path.basename(path.dirname(firstInput));
+  const title = values.title?.trim() || defaultTitle || "My Playlist";
   const tokenStore = new FileTokenStore(config.yotoTokenPath);
   const authOptions = { clientId: config.yotoClientId, tokenStore };
 
-  const result = await uploadSingleTrack({
-    filePath,
+  process.stdout.write(`${BOLD}${title}${RESET} (${tracks.length} track${tracks.length === 1 ? "" : "s"})\n`);
+  const result = await uploadPlaylist({
+    tracks,
     title,
     getAccessToken: () => getAccessToken(authOptions),
     callbacks: {
