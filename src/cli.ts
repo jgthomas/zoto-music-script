@@ -8,6 +8,8 @@ import { parseArgs } from "node:util";
 import { defaultConfig } from "./config.ts";
 import { downloadVideo } from "./download.ts";
 import { probeUrl } from "./probe.ts";
+import { getAccessToken, login } from "./yoto/auth.ts";
+import { FileTokenStore } from "./yoto/token-store.ts";
 
 const BOLD = "\x1b[1m";
 const CYAN = "\x1b[36m";
@@ -17,6 +19,7 @@ const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
 const HELP = `${BOLD}Usage:${RESET} node src/cli.ts [options] <url> [more-urls...]
+       node src/cli.ts auth <login|status|logout>
 
 ${BOLD}Options:${RESET}
   --output-dir DIR    Where MP3s are saved (default: ~/Music)
@@ -29,6 +32,16 @@ ${BOLD}Options:${RESET}
 ${BOLD}Examples:${RESET}
   node src/cli.ts "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
   node src/cli.ts "https://www.youtube.com/playlist?list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI"
+`;
+
+const AUTH_HELP = `${BOLD}Usage:${RESET} node src/cli.ts auth <login|status|logout>
+
+${BOLD}Commands:${RESET}
+  login     Sign in to Yoto using your browser
+  status    Check the saved session, refreshing it if necessary
+  logout    Remove the saved Yoto session
+
+Set your public application client ID in the YOTO_CLIENT_ID environment variable.
 `;
 
 export interface CliValues {
@@ -74,7 +87,55 @@ function clearProgressLine(): void {
   if (process.stdout.isTTY) process.stdout.write("\r\x1b[K");
 }
 
+function loadLocalEnv(): void {
+  try {
+    process.loadEnvFile();
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return;
+    throw new Error(`Could not load .env: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function runAuthCommand(args: string[]): Promise<void> {
+  const command = args[0];
+  if (!command || command === "help" || command === "--help" || command === "-h") {
+    process.stdout.write(AUTH_HELP);
+    return;
+  }
+
+  const config = defaultConfig();
+  const tokenStore = new FileTokenStore(config.yotoTokenPath);
+
+  if (command === "logout") {
+    await tokenStore.clear();
+    process.stdout.write(`${GREEN}Signed out of Yoto.${RESET}\n`);
+    return;
+  }
+  if (command !== "login" && command !== "status") {
+    throw new Error(`Unknown auth command: ${command}`);
+  }
+  if (!config.yotoClientId) {
+    throw new Error("YOTO_CLIENT_ID is required for Yoto authentication");
+  }
+
+  const authOptions = { clientId: config.yotoClientId, tokenStore };
+  if (command === "login") {
+    await login(authOptions, (url) => {
+      process.stdout.write(`${BOLD}Open this URL to sign in to Yoto:${RESET}\n${url}\n`);
+    });
+    process.stdout.write(`${GREEN}Signed in to Yoto.${RESET}\n`);
+  } else {
+    await getAccessToken(authOptions);
+    process.stdout.write(`${GREEN}Signed in to Yoto.${RESET}\n`);
+  }
+}
+
 async function main(): Promise<void> {
+  loadLocalEnv();
+  if (process.argv[2] === "auth") {
+    await runAuthCommand(process.argv.slice(3));
+    return;
+  }
   const { values, urls } = parseCli(process.argv.slice(2));
 
   if (values.help || urls.length === 0) {

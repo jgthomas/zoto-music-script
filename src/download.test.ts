@@ -10,6 +10,7 @@ const config: Config = {
   embedThumbnail: true,
   archivePath: "/tmp/archive.txt",
   ytDlpBin: "yt-dlp",
+  yotoTokenPath: "/tmp/zoto-music-test-auth.json",
 };
 
 test("buildOutputTemplate for a single video", () => {

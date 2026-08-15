@@ -11,4 +11,12 @@ test("defaultConfig returns expected defaults", () => {
   assert.equal(c.embedThumbnail, true);
   assert.equal(c.archivePath, path.join(os.homedir(), ".cache", "zoto-music", "archive.txt"));
   assert.equal(c.ytDlpBin, "yt-dlp");
+  assert.equal(
+    c.yotoTokenPath,
+    path.join(
+      process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config"),
+      "zoto-music",
+      "yoto-auth.json",
+    ),
+  );
 });

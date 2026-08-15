@@ -20,6 +20,30 @@ or with npm:
 npm start -- <url>
 ```
 
+## Yoto authentication
+
+Create a public application in the [Yoto developer dashboard](https://dashboard.yoto.dev/)
+and register `http://127.0.0.1:8787/callback` as a redirect URL. Copy the example
+environment file, add your client ID, and sign in:
+
+```sh
+cp .env.example .env
+# Edit .env and replace the placeholder client ID.
+npm start -- auth login
+```
+
+Local `.env` files are ignored by Git. An already-exported `YOTO_CLIENT_ID`
+takes precedence over the value in `.env`.
+
+The command prints a Yoto login URL and briefly listens on `127.0.0.1:8787` for
+the browser callback. The resulting session is stored with user-only permissions
+under `~/.config/zoto-music/` (or `$XDG_CONFIG_HOME/zoto-music/`).
+
+```sh
+npm start -- auth status
+npm start -- auth logout
+```
+
 ### Options
 
 | Flag                 | Default                        | Description                              |
