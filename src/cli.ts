@@ -9,6 +9,7 @@ import { defaultConfig } from "./config.ts";
 import { downloadVideo } from "./download.ts";
 import { probeUrl } from "./probe.ts";
 import { getAccessToken, login } from "./yoto/auth.ts";
+import { uploadSingleTrack } from "./yoto/media.ts";
 import { FileTokenStore } from "./yoto/token-store.ts";
 
 const BOLD = "\x1b[1m";
@@ -20,6 +21,7 @@ const RESET = "\x1b[0m";
 
 const HELP = `${BOLD}Usage:${RESET} node src/cli.ts [options] <url> [more-urls...]
        node src/cli.ts auth <login|status|logout>
+       node src/cli.ts upload [--title TITLE] <file.mp3>
 
 ${BOLD}Options:${RESET}
   --output-dir DIR    Where MP3s are saved (default: ~/Music)
@@ -32,6 +34,12 @@ ${BOLD}Options:${RESET}
 ${BOLD}Examples:${RESET}
   node src/cli.ts "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
   node src/cli.ts "https://www.youtube.com/playlist?list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI"
+`;
+
+const UPLOAD_HELP = `${BOLD}Usage:${RESET} node src/cli.ts upload [--title TITLE] <file.mp3>
+
+Upload one MP3 and create a single-track playlist in your Yoto MYO library.
+The filename without its extension is used as the title by default.
 `;
 
 const AUTH_HELP = `${BOLD}Usage:${RESET} node src/cli.ts auth <login|status|logout>
@@ -130,10 +138,49 @@ async function runAuthCommand(args: string[]): Promise<void> {
   }
 }
 
+async function runUploadCommand(args: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      title: { type: "string" },
+      help: { type: "boolean", short: "h", default: false },
+    },
+  });
+  if (values.help) {
+    process.stdout.write(UPLOAD_HELP);
+    return;
+  }
+  if (positionals.length !== 1) throw new Error("upload requires exactly one MP3 file");
+
+  const config = defaultConfig();
+  if (!config.yotoClientId) throw new Error("YOTO_CLIENT_ID is required for Yoto uploads");
+  const filePath = path.resolve(positionals[0]);
+  const title = values.title?.trim() || path.basename(filePath, path.extname(filePath));
+  const tokenStore = new FileTokenStore(config.yotoTokenPath);
+  const authOptions = { clientId: config.yotoClientId, tokenStore };
+
+  const result = await uploadSingleTrack({
+    filePath,
+    title,
+    getAccessToken: () => getAccessToken(authOptions),
+    callbacks: {
+      onStatus: (status) => process.stdout.write(`  ${DIM}${status}${RESET}\n`),
+    },
+  });
+  process.stdout.write(`${GREEN}Yoto playlist created:${RESET} ${result.title}\n`);
+  process.stdout.write(`Content ID: ${result.cardId}\n`);
+  process.stdout.write("Open the Yoto app to link this playlist to a Make Your Own card.\n");
+}
+
 async function main(): Promise<void> {
   loadLocalEnv();
   if (process.argv[2] === "auth") {
     await runAuthCommand(process.argv.slice(3));
+    return;
+  }
+  if (process.argv[2] === "upload") {
+    await runUploadCommand(process.argv.slice(3));
     return;
   }
   const { values, urls } = parseCli(process.argv.slice(2));

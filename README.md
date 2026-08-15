@@ -44,6 +44,17 @@ npm start -- auth status
 npm start -- auth logout
 ```
 
+## Uploading an MP3 to Yoto
+
+Upload one local MP3 and create a single-track playlist in your MYO library:
+
+```sh
+npm start -- upload --title "My playlist" ./track.mp3
+```
+
+If `--title` is omitted, the filename is used. Once the playlist has been
+created, open the Yoto app to link it to a physical Make Your Own card.
+
 ### Options
 
 | Flag                 | Default                        | Description                              |
