@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import type { Config } from "./config.ts";
+import type { DownloadManifest } from "./download-manifest.ts";
 import type { ProbeResult } from "./probe.ts";
 import { parseProgressLine, renderProgressLine, type ProgressData } from "./progress.ts";
+import type { LocalTrack } from "./tracks.ts";
 
 export interface DownloadCallbacks {
   onTitle?: (title: string) => void;
@@ -12,22 +14,33 @@ export interface DownloadCallbacks {
 }
 
 export interface DownloadResult {
-  downloaded: boolean;
+  tracks: LocalTrack[];
+  downloadedCount: number;
   skipped: boolean;
-  destination: string | null;
 }
 
 export interface DownloadOptions {
   url: string;
   probe: ProbeResult;
   config: Config;
+  manifest?: DownloadManifest;
   callbacks?: DownloadCallbacks;
+}
+
+interface DownloadedTrackData {
+  id: string;
+  title: string;
+  webpageUrl?: string | null;
+  playlistTitle?: string | null;
+  playlistIndex?: number | null;
+  filePath: string;
 }
 
 export type OutputLineResult =
   | { kind: "title"; title: string }
   | { kind: "progress"; rendered: string; data: ProgressData }
   | { kind: "skipped" }
+  | { kind: "track"; track: DownloadedTrackData }
   | { kind: "destination"; destination: string }
   | { kind: "none" };
 
@@ -63,7 +76,7 @@ export function buildArgs(url: string, config: Config, template: string): string
     "--print",
     "before_dl:TITLE:%(title)s",
     "--print",
-    "after_move:DESTINATION:%(filepath)s",
+    'after_move:TRACK:{"id":%(id)j,"title":%(title)j,"webpageUrl":%(webpage_url)j,"playlistTitle":%(playlist_title)j,"playlistIndex":%(playlist_index)j,"filePath":%(filepath)j}',
   ];
   if (config.embedThumbnail) args.push("--embed-thumbnail");
   args.push("--", url);
@@ -76,6 +89,30 @@ export function parseOutputLine(line: string): OutputLineResult {
 
   if (trimmed.startsWith("TITLE:")) {
     return { kind: "title", title: trimmed.slice("TITLE:".length) };
+  }
+
+  if (trimmed.startsWith("TRACK:")) {
+    try {
+      // yt-dlp's `j` conversion renders unavailable values as bare `NA` rather
+      // than JSON null. Only normalize NA tokens in value positions; quoted
+      // occurrences in titles and paths remain unchanged.
+      const json = trimmed
+        .slice("TRACK:".length)
+        .replace(/([:,])NA(?=,|})/g, "$1null");
+      const value: unknown = JSON.parse(json);
+      if (!value || typeof value !== "object") throw new Error("not an object");
+      const track = value as Partial<DownloadedTrackData>;
+      if (
+        typeof track.id !== "string" ||
+        typeof track.title !== "string" ||
+        typeof track.filePath !== "string"
+      ) {
+        throw new Error("missing required fields");
+      }
+      return { kind: "track", track: track as DownloadedTrackData };
+    } catch {
+      return { kind: "none" };
+    }
   }
 
   const progress = parseProgressLine(trimmed);
@@ -106,8 +143,7 @@ export function downloadVideo(opts: DownloadOptions): Promise<DownloadResult> {
     const proc = spawn(opts.config.ytDlpBin, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdoutBuf = "";
     let stderrBuf = "";
-    let lastDestination: string | null = null;
-    let downloadedAny = false;
+    const downloadedTracks: LocalTrack[] = [];
     let skippedAny = false;
     const diagnostics: string[] = [];
     let settled = false;
@@ -119,16 +155,36 @@ export function downloadVideo(opts: DownloadOptions): Promise<DownloadResult> {
           opts.callbacks?.onTitle?.(result.title);
           break;
         case "progress":
-          if (result.data.downloaded > 0) downloadedAny = true;
           opts.callbacks?.onProgress?.(result.rendered);
           break;
         case "skipped":
           skippedAny = true;
           opts.callbacks?.onStatus?.("skipped (already in archive)");
           break;
+        case "track": {
+          const data = result.track;
+          const playlistIndex =
+            typeof data.playlistIndex === "number" && data.playlistIndex > 0
+              ? data.playlistIndex
+              : undefined;
+          const track: LocalTrack = {
+            filePath: data.filePath,
+            title: data.title,
+            order: playlistIndex ?? downloadedTracks.length + 1,
+            source: {
+              kind: "youtube",
+              id: data.id,
+              url: data.webpageUrl || `https://www.youtube.com/watch?v=${data.id}`,
+              requestUrl: opts.url,
+              ...(data.playlistTitle ? { playlistTitle: data.playlistTitle } : {}),
+              ...(playlistIndex ? { playlistIndex } : {}),
+            },
+          };
+          downloadedTracks.push(track);
+          opts.callbacks?.onStatus?.(`-> ${track.filePath}`);
+          break;
+        }
         case "destination":
-          lastDestination = result.destination;
-          downloadedAny = true;
           opts.callbacks?.onStatus?.(`-> ${result.destination}`);
           break;
         case "none":
@@ -168,7 +224,16 @@ export function downloadVideo(opts: DownloadOptions): Promise<DownloadResult> {
       if (stdoutBuf) handleLine(stdoutBuf);
       if (stderrBuf) handleLine(stderrBuf);
       if (code === 0) {
-        resolve({ downloaded: downloadedAny, skipped: skippedAny, destination: lastDestination });
+        void (async () => {
+          await opts.manifest?.record(downloadedTracks);
+          const recovered = (await opts.manifest?.tracksForRequest(opts.url)) ?? [];
+          const bySourceId = new Map<string, LocalTrack>();
+          for (const track of [...recovered, ...downloadedTracks]) {
+            bySourceId.set(track.source?.id ?? track.filePath, track);
+          }
+          const tracks = [...bySourceId.values()].sort((left, right) => left.order - right.order);
+          resolve({ tracks, downloadedCount: downloadedTracks.length, skipped: skippedAny });
+        })().catch(reject);
       } else {
         const detail = diagnostics.slice(-12).join("\n");
         const signal = proc.signalCode ? ` (signal ${proc.signalCode})` : "";

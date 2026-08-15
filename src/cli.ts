@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { defaultConfig } from "./config.ts";
 import { downloadVideo } from "./download.ts";
+import { DownloadManifest } from "./download-manifest.ts";
 import { probeUrl } from "./probe.ts";
 import { getAccessToken, login } from "./yoto/auth.ts";
 import { uploadSingleTrack } from "./yoto/media.ts";
@@ -19,7 +20,8 @@ const RED = "\x1b[31m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
-const HELP = `${BOLD}Usage:${RESET} node src/cli.ts [options] <url> [more-urls...]
+const HELP = `${BOLD}Usage:${RESET} node src/cli.ts download [options] <url> [more-urls...]
+       node src/cli.ts [options] <url> [more-urls...]
        node src/cli.ts auth <login|status|logout>
        node src/cli.ts upload [--title TITLE] <file.mp3>
 
@@ -32,7 +34,7 @@ ${BOLD}Options:${RESET}
   -h, --help          Show this help
 
 ${BOLD}Examples:${RESET}
-  node src/cli.ts "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+  node src/cli.ts download "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
   node src/cli.ts "https://www.youtube.com/playlist?list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI"
 `;
 
@@ -183,7 +185,8 @@ async function main(): Promise<void> {
     await runUploadCommand(process.argv.slice(3));
     return;
   }
-  const { values, urls } = parseCli(process.argv.slice(2));
+  const downloadArgs = process.argv[2] === "download" ? process.argv.slice(3) : process.argv.slice(2);
+  const { values, urls } = parseCli(downloadArgs);
 
   if (values.help || urls.length === 0) {
     process.stdout.write(HELP);
@@ -205,6 +208,7 @@ async function main(): Promise<void> {
   if (values["yt-dlp"]) config.ytDlpBin = values["yt-dlp"];
 
   await mkdir(path.dirname(config.archivePath), { recursive: true });
+  const manifest = new DownloadManifest(config.downloadManifestPath);
 
   let failed = false;
 
@@ -242,14 +246,17 @@ async function main(): Promise<void> {
         },
       };
 
-      const result = await downloadVideo({ url, probe, config, callbacks });
+      const result = await downloadVideo({ url, probe, config, manifest, callbacks });
       clearProgressLine();
 
-      if (result.downloaded) {
-        const dest = result.destination ? ` ${result.destination}` : "";
-        process.stdout.write(`  ${GREEN}done${RESET}${dest}\n`);
+      if (result.downloadedCount > 0) {
+        process.stdout.write(
+          `  ${GREEN}done${RESET} ${result.downloadedCount} downloaded, ${result.tracks.length} local track(s) available\n`,
+        );
+      } else if (result.tracks.length > 0) {
+        process.stdout.write(`  ${DIM}${result.tracks.length} archived local track(s) recovered${RESET}\n`);
       } else if (result.skipped) {
-        process.stdout.write(`  ${DIM}already in archive, nothing to do${RESET}\n`);
+        process.stdout.write(`  ${DIM}already in archive, but no local files were found${RESET}\n`);
       } else {
         process.stdout.write(`  ${DIM}no download performed${RESET}\n`);
       }

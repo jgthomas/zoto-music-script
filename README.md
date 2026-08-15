@@ -11,14 +11,19 @@ Download audio from YouTube URLs (single videos or playlists) as MP3.
 ## Usage
 
 ```sh
-node src/cli.ts <url> [more-urls...]
+node src/cli.ts download <url> [more-urls...]
 ```
 
-or with npm:
+The original bare-URL form remains available:
 
 ```sh
 npm start -- <url>
 ```
+
+Downloads produce structured local track records containing the source video ID,
+title, URL, playlist position, and final MP3 path. These are retained in
+`~/.local/state/zoto-music/downloads.json` (or beneath `$XDG_STATE_HOME`) so a
+later run can recover local files skipped by yt-dlp's download archive.
 
 ## Yoto authentication
 
@@ -54,6 +59,10 @@ npm start -- upload --title "My playlist" ./track.mp3
 
 If `--title` is omitted, the filename is used. Once the playlist has been
 created, open the Yoto app to link it to a physical Make Your Own card.
+
+The download and upload layers share a source-neutral local track model. Local
+MP3 directories are naturally ordered and use embedded titles when available;
+multi-track directory upload will be exposed in the next phase.
 
 ### Options
 

@@ -9,6 +9,7 @@ const config: Config = {
   quality: 3,
   embedThumbnail: true,
   archivePath: "/tmp/archive.txt",
+  downloadManifestPath: "/tmp/downloads.json",
   ytDlpBin: "yt-dlp",
   yotoTokenPath: "/tmp/zoto-music-test-auth.json",
 };
@@ -68,6 +69,43 @@ test("parseOutputLine detects progress", () => {
   if (r.kind === "progress") {
     assert.equal(r.data.downloaded, 1024);
     assert.ok(r.rendered.includes("50.0%"));
+  }
+});
+
+test("parseOutputLine detects structured completed tracks", () => {
+  assert.deepEqual(
+    parseOutputLine(
+      'TRACK:{"id":"abc","title":"Song","webpageUrl":"https://youtu.be/abc","playlistTitle":"Album","playlistIndex":2,"filePath":"/tmp/02 - Song.mp3"}',
+    ),
+    {
+      kind: "track",
+      track: {
+        id: "abc",
+        title: "Song",
+        webpageUrl: "https://youtu.be/abc",
+        playlistTitle: "Album",
+        playlistIndex: 2,
+        filePath: "/tmp/02 - Song.mp3",
+      },
+    },
+  );
+});
+
+test("parseOutputLine rejects malformed structured tracks", () => {
+  assert.equal(parseOutputLine("TRACK:not-json").kind, "none");
+  assert.equal(parseOutputLine('TRACK:{"title":"Missing fields"}').kind, "none");
+});
+
+test("parseOutputLine normalizes yt-dlp unavailable values", () => {
+  const result = parseOutputLine(
+    'TRACK:{"id":"abc","title":"NA is a title","webpageUrl":"https://youtu.be/abc","playlistTitle":NA,"playlistIndex":NA,"filePath":"/tmp/NA Song.mp3"}',
+  );
+  assert.equal(result.kind, "track");
+  if (result.kind === "track") {
+    assert.equal(result.track.title, "NA is a title");
+    assert.equal(result.track.playlistTitle, null);
+    assert.equal(result.track.playlistIndex, null);
+    assert.equal(result.track.filePath, "/tmp/NA Song.mp3");
   }
 });
 

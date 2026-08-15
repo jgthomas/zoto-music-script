@@ -10,6 +10,14 @@ test("defaultConfig returns expected defaults", () => {
   assert.equal(c.quality, 0);
   assert.equal(c.embedThumbnail, true);
   assert.equal(c.archivePath, path.join(os.homedir(), ".cache", "zoto-music", "archive.txt"));
+  assert.equal(
+    c.downloadManifestPath,
+    path.join(
+      process.env.XDG_STATE_HOME ?? path.join(os.homedir(), ".local", "state"),
+      "zoto-music",
+      "downloads.json",
+    ),
+  );
   assert.equal(c.ytDlpBin, "yt-dlp");
   assert.equal(
     c.yotoTokenPath,
