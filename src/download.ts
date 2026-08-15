@@ -8,6 +8,7 @@ export interface DownloadCallbacks {
   onTitle?: (title: string) => void;
   onProgress?: (rendered: string) => void;
   onStatus?: (text: string) => void;
+  onDiagnostic?: (text: string) => void;
 }
 
 export interface DownloadResult {
@@ -42,7 +43,7 @@ export function buildOutputTemplate(probe: ProbeResult, config: Config): string 
 }
 
 export function buildArgs(url: string, config: Config, template: string): string[] {
-  return [
+  const args = [
     "-x",
     "--audio-format",
     "mp3",
@@ -50,8 +51,23 @@ export function buildArgs(url: string, config: Config, template: string): string
     String(config.quality),
     "--output",
     template,
-    url,
+    "--download-archive",
+    config.archivePath,
+    "--embed-metadata",
+    // --print can otherwise imply quiet or simulated operation in yt-dlp.
+    "--no-simulate",
+    "--no-quiet",
+    "--newline",
+    "--progress-template",
+    "download:download:%(progress.downloaded_bytes)s|%(progress.total_bytes,progress.total_bytes_estimate)s|%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
+    "--print",
+    "before_dl:TITLE:%(title)s",
+    "--print",
+    "after_move:DESTINATION:%(filepath)s",
   ];
+  if (config.embedThumbnail) args.push("--embed-thumbnail");
+  args.push("--", url);
+  return args;
 }
 
 export function parseOutputLine(line: string): OutputLineResult {
@@ -74,7 +90,7 @@ export function parseOutputLine(line: string): OutputLineResult {
     return { kind: "skipped" };
   }
 
-  const dest = /Destination: (.+)$/.exec(trimmed);
+  const dest = /(?:DESTINATION:|Destination: )(.+)$/.exec(trimmed);
   if (dest) {
     return { kind: "destination", destination: dest[1] };
   }
@@ -93,7 +109,8 @@ export function downloadVideo(opts: DownloadOptions): Promise<DownloadResult> {
     let lastDestination: string | null = null;
     let downloadedAny = false;
     let skippedAny = false;
-    let lastErrorLine = "";
+    const diagnostics: string[] = [];
+    let settled = false;
 
     const handleLine = (line: string) => {
       const result = parseOutputLine(line);
@@ -115,6 +132,12 @@ export function downloadVideo(opts: DownloadOptions): Promise<DownloadResult> {
           opts.callbacks?.onStatus?.(`-> ${result.destination}`);
           break;
         case "none":
+          if (line.trim()) {
+            diagnostics.push(line.trim());
+            // stdout contains normal yt-dlp status messages; stderr contains
+            // warnings and errors. Expose both instead of silently discarding them.
+            opts.callbacks?.onDiagnostic?.(line.trim());
+          }
           break;
       }
     };
@@ -132,23 +155,28 @@ export function downloadVideo(opts: DownloadOptions): Promise<DownloadResult> {
       stderrBuf += chunk;
       const lines = stderrBuf.split(/\r?\n/);
       stderrBuf = lines.pop() ?? "";
-      for (const l of lines) {
-        const t = l.trim();
-        if (!t) continue;
-        if (/^ERROR:/.test(t)) lastErrorLine = t;
-        process.stderr.write(t + "\n");
-      }
+      for (const l of lines) handleLine(l);
     });
 
-    proc.on("error", reject);
+    proc.on("error", (error) => {
+      settled = true;
+      reject(new Error(`Could not start ${opts.config.ytDlpBin}: ${error.message}`, { cause: error }));
+    });
 
     proc.on("close", (code) => {
+      if (settled) return;
       if (stdoutBuf) handleLine(stdoutBuf);
-      if (stderrBuf.trim()) process.stderr.write(stderrBuf.trim() + "\n");
+      if (stderrBuf) handleLine(stderrBuf);
       if (code === 0) {
         resolve({ downloaded: downloadedAny, skipped: skippedAny, destination: lastDestination });
       } else {
-        reject(new Error(lastErrorLine || `yt-dlp exited with code ${code}`));
+        const detail = diagnostics.slice(-12).join("\n");
+        const signal = proc.signalCode ? ` (signal ${proc.signalCode})` : "";
+        reject(
+          new Error(
+            `yt-dlp exited with code ${code ?? "unknown"}${signal}${detail ? `\n${detail}` : ""}`,
+          ),
+        );
       }
     });
   });

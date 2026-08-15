@@ -35,15 +35,22 @@ test("buildArgs includes download essentials", () => {
   assert.equal(args.at(-1), "https://example.com/v");
 });
 
-test("buildArgs is minimal - no print/simulate/quiet/progress/archive/thumbnail flags", () => {
+test("buildArgs configures machine-readable output and user options", () => {
   const args = buildArgs("https://example.com/v", config, "/tmp/music/%(title)s.%(ext)s");
-  assert.ok(!args.includes("--print"));
-  assert.ok(!args.includes("--no-simulate"));
-  assert.ok(!args.includes("--no-quiet"));
-  assert.ok(!args.includes("--newline"));
-  assert.ok(!args.includes("--progress-template"));
-  assert.ok(!args.includes("--download-archive"));
-  assert.ok(!args.includes("--embed-metadata"));
+  assert.ok(args.includes("--print"));
+  assert.ok(args.includes("--no-simulate"));
+  assert.ok(args.includes("--no-quiet"));
+  assert.ok(args.includes("--newline"));
+  assert.ok(args.includes("--progress-template"));
+  assert.ok(args.includes("--download-archive"));
+  assert.ok(args.includes("/tmp/archive.txt"));
+  assert.ok(args.includes("--embed-metadata"));
+  assert.ok(args.includes("--embed-thumbnail"));
+  assert.deepEqual(args.slice(-2), ["--", "https://example.com/v"]);
+});
+
+test("buildArgs omits thumbnail embedding when disabled", () => {
+  const args = buildArgs("https://example.com/v", { ...config, embedThumbnail: false }, "out");
   assert.ok(!args.includes("--embed-thumbnail"));
 });
 
@@ -75,6 +82,13 @@ test("parseOutputLine detects legacy archive skip message without 'the'", () => 
 
 test("parseOutputLine detects a destination", () => {
   assert.deepEqual(parseOutputLine("[download] Destination: /tmp/music/Song.mp3"), {
+    kind: "destination",
+    destination: "/tmp/music/Song.mp3",
+  });
+});
+
+test("parseOutputLine detects the final post-processing destination", () => {
+  assert.deepEqual(parseOutputLine("DESTINATION:/tmp/music/Song.mp3"), {
     kind: "destination",
     destination: "/tmp/music/Song.mp3",
   });

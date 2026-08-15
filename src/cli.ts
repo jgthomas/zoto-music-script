@@ -128,6 +128,10 @@ async function main(): Promise<void> {
           clearProgressLine();
           process.stdout.write(`  ${DIM}${text}${RESET}\n`);
         },
+        onDiagnostic: (text: string) => {
+          clearProgressLine();
+          process.stderr.write(`  ${DIM}${text}${RESET}\n`);
+        },
       };
 
       const result = await downloadVideo({ url, probe, config, callbacks });

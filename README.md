@@ -4,7 +4,7 @@ Download audio from YouTube URLs (single videos or playlists) as MP3.
 
 ## Requirements
 
-- Node.js >= 23.6
+- Node.js >= 26
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) on PATH
 - [ffmpeg](https://ffmpeg.org/) on PATH (used to convert to MP3)
 

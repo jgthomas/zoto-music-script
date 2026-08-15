@@ -21,18 +21,31 @@ export function parseProbeOutput(stdout: string): ProbeResult {
   };
 }
 
-export async function probeUrl(url: string, ytDlpBin: string): Promise<ProbeResult> {
-  const { stdout } = await execFileAsync(
-    ytDlpBin,
-    [
-      "--flat-playlist",
-      "--print",
-      "%(playlist)s|%(playlist_title)s|%(playlist_count)s|%(title)s",
-      "--no-warnings",
-      url,
-    ],
-    { timeout: 120_000, maxBuffer: 10 * 1024 * 1024 },
-  );
+function errorText(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const stderr = "stderr" in error && typeof error.stderr === "string" ? error.stderr.trim() : "";
+  return stderr || error.message;
+}
 
-  return parseProbeOutput(stdout);
+export async function probeUrl(url: string, ytDlpBin: string): Promise<ProbeResult> {
+  try {
+    const { stdout } = await execFileAsync(
+      ytDlpBin,
+      [
+        "--flat-playlist",
+        "--print",
+        "%(playlist)s|%(playlist_title)s|%(playlist_count)s|%(title)s",
+        "--no-warnings",
+        "--",
+        url,
+      ],
+      { timeout: 120_000, maxBuffer: 10 * 1024 * 1024 },
+    );
+
+    const result = parseProbeOutput(stdout);
+    if (!result.title) throw new Error("yt-dlp returned no usable metadata");
+    return result;
+  } catch (error) {
+    throw new Error(`Could not inspect URL with yt-dlp:\n${errorText(error)}`, { cause: error });
+  }
 }
