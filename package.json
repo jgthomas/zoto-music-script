@@ -1,0 +1,22 @@
+{
+  "name": "zoto-music-script",
+  "version": "0.1.0",
+  "description": "Download audio from YouTube URLs (single videos or playlists) as MP3 using yt-dlp",
+  "type": "module",
+  "bin": {
+    "zoto-music": "./src/cli.ts"
+  },
+  "scripts": {
+    "start": "node src/cli.ts",
+    "test": "node --test",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=23.6"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2"
+  }
+}
