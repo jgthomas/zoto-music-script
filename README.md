@@ -1,6 +1,6 @@
 # zoto-music-script
 
-Download audio from YouTube URLs (single videos or playlists) as MP3.
+Download audio from YouTube and create Yoto Make Your Own playlists.
 
 ## Requirements
 
@@ -10,14 +10,24 @@ Download audio from YouTube URLs (single videos or playlists) as MP3.
 
 ## Usage
 
+The default workflow downloads a YouTube video or playlist and uploads the
+resulting MP3s as one Yoto MYO playlist:
+
 ```sh
-node src/cli.ts download <url> [more-urls...]
+npm start -- <youtube-url>
 ```
 
-The original bare-URL form remains available:
+The equivalent explicit command supports a custom Yoto playlist title:
 
 ```sh
-npm start -- <url>
+npm start -- sync --title "My playlist" <youtube-url>
+```
+
+Download and upload can also be run independently. To download without creating
+Yoto content:
+
+```sh
+npm start -- download <youtube-url> [more-urls...]
 ```
 
 Downloads produce structured local track records containing the source video ID,
@@ -80,19 +90,20 @@ MP3 directories are naturally ordered and use embedded titles when available.
 | `--no-thumbnail`     | (embed by default)             | Skip embedding the video thumbnail       |
 | `--archive FILE`     | `~/.cache/zoto-music/archive.txt` | Skip videos already downloaded       |
 | `--yt-dlp PATH`      | `yt-dlp`                       | Path to the yt-dlp binary                |
+| `--title TITLE`      | YouTube title                  | Yoto playlist title (`sync` only)        |
 | `-h, --help`         |                                | Show help                                |
 
 ### Examples
 
 ```sh
-# Single video -> ~/Music/Title.mp3
-node src/cli.ts "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+# Seamless download and Yoto upload
+node src/cli.ts sync "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 
-# Playlist -> ~/Music/<Playlist Name>/001 - Title.mp3
-node src/cli.ts "https://www.youtube.com/playlist?list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI"
+# Explicit download only
+node src/cli.ts download "https://www.youtube.com/playlist?list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI"
 
-# Custom destination
-node src/cli.ts --output-dir ~/Music/New "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+# Seamless workflow with a custom local destination and Yoto title
+node src/cli.ts sync --output-dir ~/Music/New --title "New songs" "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 ```
 
 ## Development
@@ -100,7 +111,7 @@ node src/cli.ts --output-dir ~/Music/New "https://www.youtube.com/watch?v=dQw4w9
 ```sh
 npm install        # install dev dependencies
 npm run typecheck  # type-check with tsc --noEmit
-npm start -- <url> # run
+npm start -- <url> # download and upload to Yoto
 ```
 
 ## Notes

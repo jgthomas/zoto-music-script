@@ -10,6 +10,7 @@ import { downloadVideo } from "./download.ts";
 import { DownloadManifest } from "./download-manifest.ts";
 import { probeUrl } from "./probe.ts";
 import { discoverLocalTracks } from "./tracks.ts";
+import { syncYoutubeToYoto } from "./sync.ts";
 import { getAccessToken, login } from "./yoto/auth.ts";
 import { uploadPlaylist } from "./yoto/media.ts";
 import { FileTokenStore } from "./yoto/token-store.ts";
@@ -22,7 +23,8 @@ const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
 const HELP = `${BOLD}Usage:${RESET} node src/cli.ts download [options] <url> [more-urls...]
-       node src/cli.ts [options] <url> [more-urls...]
+       node src/cli.ts sync [options] [--title TITLE] <url>
+       node src/cli.ts [options] [--title TITLE] <url>
        node src/cli.ts auth <login|status|logout>
        node src/cli.ts upload [--title TITLE] <file-or-directory> [...]
 
@@ -32,11 +34,12 @@ ${BOLD}Options:${RESET}
   --no-thumbnail      Do not embed the video thumbnail
   --archive FILE      Skip videos already downloaded (default: ~/.cache/zoto-music/archive.txt)
   --yt-dlp PATH       Path to the yt-dlp binary (default: yt-dlp)
+  --title TITLE       Yoto playlist title for sync (default: YouTube title)
   -h, --help          Show this help
 
 ${BOLD}Examples:${RESET}
   node src/cli.ts download "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-  node src/cli.ts "https://www.youtube.com/playlist?list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI"
+  node src/cli.ts sync "https://www.youtube.com/playlist?list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI"
 `;
 
 const UPLOAD_HELP = `${BOLD}Usage:${RESET} node src/cli.ts upload [--title TITLE] <file-or-directory> [...]
@@ -61,10 +64,14 @@ export interface CliValues {
   thumbnail: boolean;
   archive?: string;
   "yt-dlp"?: string;
+  title?: string;
   help: boolean;
 }
 
-export function parseCli(argv: string[]): { values: CliValues; urls: string[] } {
+export function parseCli(
+  argv: string[],
+  options: { allowTitle?: boolean } = {},
+): { values: CliValues; urls: string[] } {
   let noThumbnail = false;
   const args = argv.filter((a) => {
     if (a === "--no-thumbnail") {
@@ -83,6 +90,7 @@ export function parseCli(argv: string[]): { values: CliValues; urls: string[] } 
       thumbnail: { type: "boolean", default: true },
       archive: { type: "string" },
       "yt-dlp": { type: "string" },
+      ...(options.allowTitle ? { title: { type: "string" as const } } : {}),
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -92,6 +100,20 @@ export function parseCli(argv: string[]): { values: CliValues; urls: string[] } 
     thumbnail: noThumbnail ? false : (raw.thumbnail ?? true),
   };
   return { values, urls: positionals };
+}
+
+function applyDownloadOptions(config: ReturnType<typeof defaultConfig>, values: CliValues): void {
+  if (values["output-dir"]) config.outputDir = values["output-dir"];
+  if (values.quality !== undefined) {
+    const quality = Number(values.quality);
+    if (!Number.isInteger(quality) || quality < 0 || quality > 9) {
+      throw new Error("--quality must be an integer 0-9");
+    }
+    config.quality = quality;
+  }
+  config.embedThumbnail = values.thumbnail;
+  if (values.archive) config.archivePath = values.archive;
+  if (values["yt-dlp"]) config.ytDlpBin = values["yt-dlp"];
 }
 
 function clearProgressLine(): void {
@@ -184,6 +206,67 @@ async function runUploadCommand(args: string[]): Promise<void> {
   process.stdout.write("Open the Yoto app to link this playlist to a Make Your Own card.\n");
 }
 
+async function runSyncCommand(args: string[]): Promise<void> {
+  const { values, urls } = parseCli(args, { allowTitle: true });
+  if (values.help) {
+    process.stdout.write(HELP);
+    return;
+  }
+  if (urls.length !== 1) throw new Error("sync requires exactly one YouTube URL");
+
+  const config = defaultConfig();
+  applyDownloadOptions(config, values);
+  if (!config.yotoClientId) throw new Error("YOTO_CLIENT_ID is required for sync");
+  await mkdir(path.dirname(config.archivePath), { recursive: true });
+  const manifest = new DownloadManifest(config.downloadManifestPath);
+  const tokenStore = new FileTokenStore(config.yotoTokenPath);
+  const authOptions = { clientId: config.yotoClientId, tokenStore };
+  // Fail before starting a potentially long download if the Yoto session is
+  // missing or cannot be refreshed.
+  await getAccessToken(authOptions);
+
+  const result = await syncYoutubeToYoto({
+    url: urls[0],
+    title: values.title,
+    config,
+    manifest,
+    getAccessToken: () => getAccessToken(authOptions),
+    onProbe: (probe) => {
+      const count = probe.kind === "playlist" && probe.count > 0 ? ` (${probe.count} videos)` : "";
+      const kind = probe.kind === "playlist" ? "Playlist" : "Single video";
+      process.stdout.write(`${CYAN}${kind}:${RESET} ${probe.title}${count}\n`);
+    },
+    downloadCallbacks: {
+      onTitle: (title) => {
+        clearProgressLine();
+        process.stdout.write(`  ${BOLD}${title}${RESET}\n`);
+      },
+      onProgress: (rendered) => {
+        if (process.stdout.isTTY) process.stdout.write(`\r  ${rendered}   `);
+        else process.stdout.write(`  ${rendered}\n`);
+      },
+      onStatus: (status) => {
+        clearProgressLine();
+        process.stdout.write(`  ${DIM}${status}${RESET}\n`);
+      },
+      onDiagnostic: (diagnostic) => {
+        clearProgressLine();
+        process.stderr.write(`  ${DIM}${diagnostic}${RESET}\n`);
+      },
+    },
+    uploadCallbacks: {
+      onStatus: (status) => {
+        clearProgressLine();
+        process.stdout.write(`  ${DIM}${status}${RESET}\n`);
+      },
+    },
+  });
+  clearProgressLine();
+  process.stdout.write(`${GREEN}Yoto playlist created:${RESET} ${result.content.title}\n`);
+  process.stdout.write(`Content ID: ${result.content.cardId}\n`);
+  process.stdout.write("Open the Yoto app to link this playlist to a Make Your Own card.\n");
+}
+
 async function main(): Promise<void> {
   loadLocalEnv();
   if (process.argv[2] === "auth") {
@@ -194,7 +277,12 @@ async function main(): Promise<void> {
     await runUploadCommand(process.argv.slice(3));
     return;
   }
-  const downloadArgs = process.argv[2] === "download" ? process.argv.slice(3) : process.argv.slice(2);
+  if (process.argv[2] !== "download") {
+    const syncArgs = process.argv[2] === "sync" ? process.argv.slice(3) : process.argv.slice(2);
+    await runSyncCommand(syncArgs);
+    return;
+  }
+  const downloadArgs = process.argv.slice(3);
   const { values, urls } = parseCli(downloadArgs);
 
   if (values.help || urls.length === 0) {
@@ -203,18 +291,7 @@ async function main(): Promise<void> {
   }
 
   const config = defaultConfig();
-  if (values["output-dir"]) config.outputDir = values["output-dir"];
-  if (values.quality !== undefined) {
-    const q = Number(values.quality);
-    if (!Number.isInteger(q) || q < 0 || q > 9) {
-      process.stderr.write(`${RED}error:${RESET} --quality must be an integer 0-9\n`);
-      process.exit(1);
-    }
-    config.quality = q;
-  }
-  config.embedThumbnail = values.thumbnail;
-  if (values.archive) config.archivePath = values.archive;
-  if (values["yt-dlp"]) config.ytDlpBin = values["yt-dlp"];
+  applyDownloadOptions(config, values);
 
   await mkdir(path.dirname(config.archivePath), { recursive: true });
   const manifest = new DownloadManifest(config.downloadManifestPath);

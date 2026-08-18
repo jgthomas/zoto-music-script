@@ -46,3 +46,12 @@ test("parseCli accepts multiple urls", () => {
   const { urls } = parseCli(["https://a.com/1", "https://a.com/2"]);
   assert.deepEqual(urls, ["https://a.com/1", "https://a.com/2"]);
 });
+
+test("parseCli accepts a sync playlist title only when enabled", () => {
+  const { values, urls } = parseCli(
+    ["--title", "Bedtime songs", "https://example.com/playlist"],
+    { allowTitle: true },
+  );
+  assert.equal(values.title, "Bedtime songs");
+  assert.deepEqual(urls, ["https://example.com/playlist"]);
+});
