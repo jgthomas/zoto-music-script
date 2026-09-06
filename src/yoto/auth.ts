@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
 import type { StoredTokens, TokenStore } from "./token-store.ts";
 
 import { request, responseError, readJson } from "./request.ts";
@@ -49,13 +48,20 @@ function jwtExpiry(token: string): number | null {
 }
 
 function toStoredTokens(response: TokenResponse): StoredTokens {
-  if (typeof response.access_token !== "string" || !response.access_token || typeof response.refresh_token !== "string" || !response.refresh_token) {
+  if (
+    typeof response.access_token !== "string" ||
+    !response.access_token ||
+    typeof response.refresh_token !== "string" ||
+    !response.refresh_token
+  ) {
     throw new Error("Yoto token response did not contain the required tokens");
   }
   const expiresAt =
     jwtExpiry(response.access_token) ?? Date.now() + (response.expires_in ?? 3600) * 1000;
   if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
-    throw new Error("Yoto returned invalid token expiry information. Run npm start -- auth login again.");
+    throw new Error(
+      "Yoto returned invalid token expiry information. Run npm start -- auth login again.",
+    );
   }
   return {
     accessToken: response.access_token,
@@ -64,12 +70,20 @@ function toStoredTokens(response: TokenResponse): StoredTokens {
   };
 }
 
-async function requestTokens(fetchImpl: typeof fetch, body: URLSearchParams): Promise<StoredTokens> {
-  const response = await request(fetchImpl, TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  }, "Yoto authentication");
+async function requestTokens(
+  fetchImpl: typeof fetch,
+  body: URLSearchParams,
+): Promise<StoredTokens> {
+  const response = await request(
+    fetchImpl,
+    TOKEN_URL,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    },
+    "Yoto authentication",
+  );
   if (!response.ok) throw await responseError(response, "Yoto authentication");
   return toStoredTokens(await readJson<TokenResponse>(response, "Yoto authentication"));
 }
@@ -189,8 +203,13 @@ function waitForAuthorizationCode(
         finish(undefined, code);
       }
     });
-    const timer = setTimeout(() => finish(new Error("Timed out waiting for Yoto login")), timeoutMs);
-    server.once("error", (error) => finish(new Error(`Could not start login callback server: ${error.message}`)));
+    const timer = setTimeout(
+      () => finish(new Error("Timed out waiting for Yoto login")),
+      timeoutMs,
+    );
+    server.once("error", (error) =>
+      finish(new Error(`Could not start login callback server: ${error.message}`)),
+    );
     server.listen(Number(redirect.port), redirect.hostname);
   });
 }

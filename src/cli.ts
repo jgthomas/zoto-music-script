@@ -141,7 +141,12 @@ function loadLocalEnv(): void {
     process.loadEnvFile();
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return;
-    throw new Error(`Could not load .env: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Could not load .env: ${error instanceof Error ? error.message : String(error)}`,
+      {
+        cause: error,
+      },
+    );
   }
 }
 
@@ -218,7 +223,9 @@ async function runUploadCommand(args: string[]): Promise<void> {
   const authOptions = { clientId: config.yotoClientId, tokenStore };
   const jobStore = new UploadJobStore(config.yotoJobsPath);
 
-  process.stdout.write(`${BOLD}${title}${RESET} (${tracks.length} track${tracks.length === 1 ? "" : "s"})\n`);
+  process.stdout.write(
+    `${BOLD}${title}${RESET} (${tracks.length} track${tracks.length === 1 ? "" : "s"})\n`,
+  );
   const result = await uploadPlaylist({
     tracks,
     title,
@@ -395,7 +402,9 @@ async function main(): Promise<void> {
           `  ${GREEN}done${RESET} ${result.downloadedCount} downloaded, ${result.tracks.length} local track(s) available\n`,
         );
       } else if (result.tracks.length > 0) {
-        process.stdout.write(`  ${DIM}${result.tracks.length} archived local track(s) recovered${RESET}\n`);
+        process.stdout.write(
+          `  ${DIM}${result.tracks.length} archived local track(s) recovered${RESET}\n`,
+        );
       } else if (result.skipped) {
         process.stdout.write(`  ${DIM}already in archive, but no local files were found${RESET}\n`);
       } else {
@@ -420,7 +429,9 @@ const isMain =
 if (isMain) {
   main().catch((err) => {
     clearProgressLine();
-    process.stderr.write(`${RED}error:${RESET} ${err instanceof Error ? err.message : String(err)}\n`);
+    process.stderr.write(
+      `${RED}error:${RESET} ${err instanceof Error ? err.message : String(err)}\n`,
+    );
     process.exit(1);
   });
 }

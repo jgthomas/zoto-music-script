@@ -49,12 +49,12 @@ export async function discoverLocalTracks(inputs: string[]): Promise<LocalTrack[
       details = await stat(resolved);
     } catch (error) {
       if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-        throw new Error(`File or directory does not exist: ${resolved}`);
+        throw new Error(`File or directory does not exist: ${resolved}`, { cause: error });
       }
       throw localError(error, "Inspecting input", resolved);
     }
     if (details.isDirectory()) {
-      const entries = await readdir(resolved, { withFileTypes: true }).catch(error => {
+      const entries = await readdir(resolved, { withFileTypes: true }).catch((error) => {
         throw localError(error, "Reading directory", resolved);
       });
       const mp3s = entries

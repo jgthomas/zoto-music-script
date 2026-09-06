@@ -34,7 +34,10 @@ test("discoverLocalTracks preserves explicit input order", async (t) => {
   const second = path.join(directory, "Alpha.mp3");
   await Promise.all([writeFile(first, ""), writeFile(second, "")]);
   const tracks = await discoverLocalTracks([first, second]);
-  assert.deepEqual(tracks.map((track) => track.title), ["Beta", "Alpha"]);
+  assert.deepEqual(
+    tracks.map((track) => track.title),
+    ["Beta", "Alpha"],
+  );
 });
 
 test("discoverLocalTracks prefers an embedded ID3 title", async (t) => {

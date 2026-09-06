@@ -6,7 +6,11 @@ import path from "node:path";
 import { DownloadManifest } from "./download-manifest.ts";
 import type { LocalTrack } from "./tracks.ts";
 
-function youtubeTrack(filePath: string, id: string, requestUrl = "https://youtube.test/list"): LocalTrack {
+function youtubeTrack(
+  filePath: string,
+  id: string,
+  requestUrl = "https://youtube.test/list",
+): LocalTrack {
   return {
     filePath,
     title: `Track ${id}`,
@@ -33,7 +37,10 @@ test("DownloadManifest records and recovers existing tracks in order", async (t)
   await manifest.record([youtubeTrack(second, "2"), youtubeTrack(first, "1")]);
 
   const recovered = await manifest.tracksForRequest("https://youtube.test/list");
-  assert.deepEqual(recovered.map((track) => track.source?.id), ["1", "2"]);
+  assert.deepEqual(
+    recovered.map((track) => track.source?.id),
+    ["1", "2"],
+  );
   assert.equal((await stat(manifestPath)).mode & 0o777, 0o600);
 });
 

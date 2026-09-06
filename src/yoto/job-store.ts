@@ -42,17 +42,18 @@ function isJobTrack(value: unknown): value is UploadJobTrack {
     Number.isFinite(track.order) &&
     Number.isFinite(track.size) &&
     Number.isFinite(track.mtimeMs) &&
-    (track.sourceSha256 === undefined || (typeof track.sourceSha256 === "string" && track.sourceSha256.length > 0)) &&
-    (track.uploadId === undefined || (typeof track.uploadId === "string" && track.uploadId.length > 0)) &&
-    (track.audio === undefined || (
-      typeof track.audio?.transcodedSha256 === "string" &&
-      track.audio.transcodedSha256.length > 0 &&
-      Number.isFinite(track.audio.transcodedInfo?.duration) &&
-      track.audio.transcodedInfo.duration > 0 &&
-      Number.isFinite(track.audio.transcodedInfo.fileSize) &&
-      track.audio.transcodedInfo.fileSize > 0 &&
-      typeof track.audio.transcodedInfo.format === "string"
-    ))
+    (track.sourceSha256 === undefined ||
+      (typeof track.sourceSha256 === "string" && track.sourceSha256.length > 0)) &&
+    (track.uploadId === undefined ||
+      (typeof track.uploadId === "string" && track.uploadId.length > 0)) &&
+    (track.audio === undefined ||
+      (typeof track.audio?.transcodedSha256 === "string" &&
+        track.audio.transcodedSha256.length > 0 &&
+        Number.isFinite(track.audio.transcodedInfo?.duration) &&
+        track.audio.transcodedInfo.duration > 0 &&
+        Number.isFinite(track.audio.transcodedInfo.fileSize) &&
+        track.audio.transcodedInfo.fileSize > 0 &&
+        typeof track.audio.transcodedInfo.format === "string"))
   );
 }
 
@@ -108,15 +109,23 @@ export class UploadJobStore {
       if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
         return null;
       }
-      if (error instanceof SyntaxError || (error instanceof Error && error.message === "upload job is invalid")) {
-        throw new Error(`Upload job is invalid: ${this.jobPath(key)}. Preserve this file and restore a valid backup; deleting it can lose the playlist ID and cause duplicates.`);
+      if (
+        error instanceof SyntaxError ||
+        (error instanceof Error && error.message === "upload job is invalid")
+      ) {
+        throw new Error(
+          `Upload job is invalid: ${this.jobPath(key)}. Preserve this file and restore a valid backup; deleting it can lose the playlist ID and cause duplicates.`,
+          { cause: error },
+        );
       }
       throw localError(error, "Reading upload job", this.jobPath(key));
     }
   }
 
   async put(job: UploadJob): Promise<void> {
-    await this.ensureDirectory().catch(error => { throw localError(error, "Preparing job directory", this.directoryPath); });
+    await this.ensureDirectory().catch((error) => {
+      throw localError(error, "Preparing job directory", this.directoryPath);
+    });
     const destinationPath = this.jobPath(job.key);
     const temporaryPath = `${destinationPath}.${process.pid}.${randomUUID()}.tmp`;
     try {

@@ -127,18 +127,18 @@ MP3 directories are naturally ordered and use embedded titles when available.
 
 ### Options
 
-| Flag                 | Default                        | Description                              |
-| -------------------- | ------------------------------ | ---------------------------------------- |
-| `--output-dir DIR`   | `~/Music`                      | Where MP3s are saved                     |
-| `--quality N`        | `0`                            | Audio quality (0 = best, 9 = worst)      |
-| `--no-thumbnail`     | (embed by default)             | Skip embedding the video thumbnail       |
-| `--archive FILE`     | `~/.cache/zoto-music/archive.txt` | Skip videos already downloaded       |
-| `--yt-dlp PATH`      | `yt-dlp`                       | Path to the yt-dlp binary                |
-| `--title TITLE`      | YouTube title                  | Yoto playlist title (`sync` only)        |
-| `--restart`          |                                | Reprocess cached work and update content |
-| `--new-copy`         |                                | Intentionally create separate content   |
-| `--retry-create`     |                                | Retry uncertain creation after checking the library |
-| `-h, --help`         |                                | Show help                                |
+| Flag               | Default                           | Description                                         |
+| ------------------ | --------------------------------- | --------------------------------------------------- |
+| `--output-dir DIR` | `~/Music`                         | Where MP3s are saved                                |
+| `--quality N`      | `0`                               | Audio quality (0 = best, 9 = worst)                 |
+| `--no-thumbnail`   | (embed by default)                | Skip embedding the video thumbnail                  |
+| `--archive FILE`   | `~/.cache/zoto-music/archive.txt` | Skip videos already downloaded                      |
+| `--yt-dlp PATH`    | `yt-dlp`                          | Path to the yt-dlp binary                           |
+| `--title TITLE`    | YouTube title                     | Yoto playlist title (`sync` only)                   |
+| `--restart`        |                                   | Reprocess cached work and update content            |
+| `--new-copy`       |                                   | Intentionally create separate content               |
+| `--retry-create`   |                                   | Retry uncertain creation after checking the library |
+| `-h, --help`       |                                   | Show help                                           |
 
 ### Examples
 
@@ -158,17 +158,17 @@ node src/cli.ts sync --output-dir ~/Music/New --title "New songs" "https://www.y
 Errors identify the failed operation and provide a next step. HTTP response
 bodies, authentication tokens, and signed upload URLs are not printed.
 
-| Failure | Next step |
-| --- | --- |
-| Missing session or rejected refresh token | Run `npm start -- auth login`, then rerun your command. |
-| Permission denied by Yoto (403) | Check your application's scopes and access to the content. |
-| Rate limit (429) | Wait for the indicated interval before resuming. |
-| Network failure or Yoto service error | Check connectivity or wait for the service, then resume. If creation was uncertain, check your library first. |
-| Transcoding timeout | Rerun the same command later; the saved upload ID allows polling to resume. |
-| Missing/deleted Yoto playlist | Use `--new-copy` if you want to create a replacement. Other validation errors do not imply deletion. |
-| Empty, missing, or unreadable MP3 | Fix the named file before rerunning. Missing metadata tags are acceptable. |
-| Invalid upload job | Preserve the named state file and restore a valid backup. Deleting it can lose the content ID and create duplicates. |
-| Local save failure | Fix disk space or permissions. If token rotation could not be saved, sign in again. If content was created, keep the printed content ID. |
+| Failure                                   | Next step                                                                                                                                |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Missing session or rejected refresh token | Run `npm start -- auth login`, then rerun your command.                                                                                  |
+| Permission denied by Yoto (403)           | Check your application's scopes and access to the content.                                                                               |
+| Rate limit (429)                          | Wait for the indicated interval before resuming.                                                                                         |
+| Network failure or Yoto service error     | Check connectivity or wait for the service, then resume. If creation was uncertain, check your library first.                            |
+| Transcoding timeout                       | Rerun the same command later; the saved upload ID allows polling to resume.                                                              |
+| Missing/deleted Yoto playlist             | Use `--new-copy` if you want to create a replacement. Other validation errors do not imply deletion.                                     |
+| Empty, missing, or unreadable MP3         | Fix the named file before rerunning. Missing metadata tags are acceptable.                                                               |
+| Invalid upload job                        | Preserve the named state file and restore a valid backup. Deleting it can lose the content ID and create duplicates.                     |
+| Local save failure                        | Fix disk space or permissions. If token rotation could not be saved, sign in again. If content was created, keep the printed content ID. |
 
 API and authentication requests have a 30-second deadline, including reading
 the response. Audio uploads have a ten-minute deadline. Transcoding polls are

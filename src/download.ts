@@ -96,9 +96,7 @@ export function parseOutputLine(line: string): OutputLineResult {
       // yt-dlp's `j` conversion renders unavailable values as bare `NA` rather
       // than JSON null. Only normalize NA tokens in value positions; quoted
       // occurrences in titles and paths remain unchanged.
-      const json = trimmed
-        .slice("TRACK:".length)
-        .replace(/([:,])NA(?=,|})/g, "$1null");
+      const json = trimmed.slice("TRACK:".length).replace(/([:,])NA(?=,|})/g, "$1null");
       const value: unknown = JSON.parse(json);
       if (!value || typeof value !== "object") throw new Error("not an object");
       const track = value as Partial<DownloadedTrackData>;
@@ -216,7 +214,9 @@ export function downloadVideo(opts: DownloadOptions): Promise<DownloadResult> {
 
     proc.on("error", (error) => {
       settled = true;
-      reject(new Error(`Could not start ${opts.config.ytDlpBin}: ${error.message}`, { cause: error }));
+      reject(
+        new Error(`Could not start ${opts.config.ytDlpBin}: ${error.message}`, { cause: error }),
+      );
     });
 
     proc.on("close", (code) => {

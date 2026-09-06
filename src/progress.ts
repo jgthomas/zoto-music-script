@@ -32,7 +32,9 @@ export function parseProgressLine(line: string): ProgressData | null {
 
 export function renderProgressLine(data: ProgressData, barWidth = 32): string {
   const pct = data.percent ?? (data.total > 0 ? (data.downloaded / data.total) * 100 : NaN);
-  const filled = Number.isFinite(pct) ? Math.max(0, Math.min(barWidth, Math.round((pct / 100) * barWidth))) : 0;
+  const filled = Number.isFinite(pct)
+    ? Math.max(0, Math.min(barWidth, Math.round((pct / 100) * barWidth)))
+    : 0;
   const bar = "█".repeat(filled) + "░".repeat(barWidth - filled);
   const pctText = Number.isFinite(pct) ? ` ${pct.toFixed(1)}%` : "";
   const of = data.total > 0 ? ` of ${formatBytes(data.total)}` : ` ${formatBytes(data.downloaded)}`;

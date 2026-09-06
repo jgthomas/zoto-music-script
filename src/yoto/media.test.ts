@@ -62,10 +62,13 @@ test("buildPlaylistContent creates one ordered chapter per track and aggregates 
     content: { chapters: Array<{ key: string; title: string }> };
     metadata: { media: { duration: number; fileSize: number } };
   };
-  assert.deepEqual(content.content.chapters.map(({ key, title }) => ({ key, title })), [
-    { key: "01", title: "Second" },
-    { key: "02", title: "First" },
-  ]);
+  assert.deepEqual(
+    content.content.chapters.map(({ key, title }) => ({ key, title })),
+    [
+      { key: "01", title: "Second" },
+      { key: "02", title: "First" },
+    ],
+  );
   assert.deepEqual(content.metadata.media, { duration: 30, fileSize: 300 });
 });
 
@@ -81,7 +84,9 @@ test("uploadSingleTrack uploads, polls, and creates content", async (t) => {
     const method = init?.method ?? "GET";
     requests.push({ url, method, body: init?.body });
     if (url.includes("/uploadUrl")) {
-      return Response.json({ upload: { uploadUrl: "https://uploads.example/audio", uploadId: "id" } });
+      return Response.json({
+        upload: { uploadUrl: "https://uploads.example/audio", uploadId: "id" },
+      });
     }
     if (url === "https://uploads.example/audio") return new Response(null, { status: 200 });
     if (url.includes("/transcoded")) {
@@ -166,7 +171,10 @@ test("uploadPlaylist sorts LocalTracks and creates one multi-track content objec
     if (url.includes("/uploadUrl")) {
       uploadNumber++;
       return Response.json({
-        upload: { uploadUrl: `https://uploads.example/${uploadNumber}`, uploadId: `id-${uploadNumber}` },
+        upload: {
+          uploadUrl: `https://uploads.example/${uploadNumber}`,
+          uploadId: `id-${uploadNumber}`,
+        },
       });
     }
     if (url.startsWith("https://uploads.example/")) return new Response(null, { status: 200 });
@@ -192,7 +200,10 @@ test("uploadPlaylist sorts LocalTracks and creates one multi-track content objec
     getAccessToken: async () => "token",
     fetch: fetchMock,
   });
-  assert.deepEqual(createdBody?.content.chapters.map((chapter) => chapter.title), ["First", "Second"]);
+  assert.deepEqual(
+    createdBody?.content.chapters.map((chapter) => chapter.title),
+    ["First", "Second"],
+  );
 });
 
 test("uploadPlaylist checkpoints tracks, resumes, and prevents duplicate content", async (t) => {
@@ -346,16 +357,24 @@ test("cached audio is invalidated when bytes change with identical size and time
       return Response.json({ upload: { uploadUrl: null, uploadId: "id" } });
     }
     if (String(input).includes("/transcoded")) {
-      return Response.json({ transcode: {
-        transcodedSha256: `hash-${uploads}`,
-        transcodedInfo: { duration: 1, fileSize: 5, format: "mp3" },
-      } });
+      return Response.json({
+        transcode: {
+          transcodedSha256: `hash-${uploads}`,
+          transcodedInfo: { duration: 1, fileSize: 5, format: "mp3" },
+        },
+      });
     }
     if (uploads === 2) assert.equal(JSON.parse(String(init?.body)).cardId, "Card1");
     return Response.json({ card: { cardId: "Card1" } });
   };
-  const options = { tracks, title: "Album", jobStore: store, jobKey: "job",
-    getAccessToken: async () => "token", fetch: fetchMock };
+  const options = {
+    tracks,
+    title: "Album",
+    jobStore: store,
+    jobKey: "job",
+    getAccessToken: async () => "token",
+    fetch: fetchMock,
+  };
   await uploadPlaylist(options);
   const before = await stat(filePath);
   await writeFile(filePath, "other");
@@ -375,23 +394,42 @@ for (const failure of ["response", "checkpoint", "before-request"] as const) {
     const store = new UploadJobStore(path.join(directory, "jobs"));
     const details = await stat(filePath);
     await store.put({
-      key: "job", title: "Album", completed: false, updatedAt: new Date().toISOString(),
-      tracks: [{
-        key: `file:${filePath}`, filePath, title: "Track", order: 1,
-        size: details.size, mtimeMs: details.mtimeMs, sourceSha256: await sha256File(filePath),
-        audio: { transcodedSha256: "hash", transcodedInfo: { duration: 1, fileSize: 5, format: "mp3" } },
-      }],
+      key: "job",
+      title: "Album",
+      completed: false,
+      updatedAt: new Date().toISOString(),
+      tracks: [
+        {
+          key: `file:${filePath}`,
+          filePath,
+          title: "Track",
+          order: 1,
+          size: details.size,
+          mtimeMs: details.mtimeMs,
+          sourceSha256: await sha256File(filePath),
+          audio: {
+            transcodedSha256: "hash",
+            transcodedInfo: { duration: 1, fileSize: 5, format: "mp3" },
+          },
+        },
+      ],
     });
     const put = store.put.bind(store);
     store.put = async (job) => {
-      if ((failure === "checkpoint" && job.completed) ||
-          (failure === "before-request" && job.creating)) throw new Error("disk failure");
+      if (
+        (failure === "checkpoint" && job.completed) ||
+        (failure === "before-request" && job.creating)
+      )
+        throw new Error("disk failure");
       await put(job);
     };
     let requests = 0;
     const options = {
-      tracks: [{ filePath, title: "Track", order: 1 }], title: "Album",
-      jobStore: store, jobKey: "job", getAccessToken: async () => "token",
+      tracks: [{ filePath, title: "Track", order: 1 }],
+      title: "Album",
+      jobStore: store,
+      jobKey: "job",
+      getAccessToken: async () => "token",
       fetch: (async (input) => {
         requests++;
         assert.ok(String(input).endsWith("/content"));
@@ -400,8 +438,12 @@ for (const failure of ["response", "checkpoint", "before-request"] as const) {
         return Response.json({ card: { cardId: "Card1" } });
       }) as typeof fetch,
     };
-    await assert.rejects(uploadPlaylist(options),
-      failure === "checkpoint" ? /Card1.*local checkpoint failed/ : /disk failure|could not reach Yoto/);
+    await assert.rejects(
+      uploadPlaylist(options),
+      failure === "checkpoint"
+        ? /Card1.*local checkpoint failed/
+        : /disk failure|could not reach Yoto/,
+    );
     store.put = put;
     if (failure === "before-request") {
       assert.equal(requests, 0);
@@ -413,7 +455,8 @@ for (const failure of ["response", "checkpoint", "before-request"] as const) {
     }
     assert.equal(requests, 1);
     const result = await uploadPlaylist({
-      ...options, retryCreate: true,
+      ...options,
+      retryCreate: true,
       fetch: async () => Response.json({ card: { cardId: "Recovered" } }),
     });
     assert.equal(result.cardId, "Recovered");

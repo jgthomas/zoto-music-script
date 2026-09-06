@@ -41,7 +41,8 @@ export class DownloadManifest {
       if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
         return { version: 1, tracks: [] };
       }
-      if (error instanceof SyntaxError) throw new Error("download manifest is invalid");
+      if (error instanceof SyntaxError)
+        throw new Error("download manifest is invalid", { cause: error });
       throw error;
     }
   }

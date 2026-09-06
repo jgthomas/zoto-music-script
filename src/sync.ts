@@ -4,11 +4,7 @@ import { downloadVideo, type DownloadCallbacks, type DownloadResult } from "./do
 import type { DownloadManifest } from "./download-manifest.ts";
 import type { UploadJobStore } from "./yoto/job-store.ts";
 import { probeUrl, type ProbeResult } from "./probe.ts";
-import {
-  uploadPlaylist,
-  type CreatedContent,
-  type UploadCallbacks,
-} from "./yoto/media.ts";
+import { uploadPlaylist, type CreatedContent, type UploadCallbacks } from "./yoto/media.ts";
 
 export interface SyncOptions {
   url: string;

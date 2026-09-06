@@ -87,12 +87,11 @@ interface CreateContentResponse {
   card?: { cardId?: string; title?: string };
 }
 
-
 export function sha256File(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const hash = createHash("sha256");
     const stream = createReadStream(filePath);
-    stream.on("error", error => reject(localError(error, "Hashing MP3", filePath)));
+    stream.on("error", (error) => reject(localError(error, "Hashing MP3", filePath)));
     stream.on("data", (chunk) => hash.update(chunk));
     stream.on("end", () => resolve(hash.digest("base64url")));
   });
@@ -109,13 +108,19 @@ function validateTranscodedAudio(value: Partial<TranscodedAudio>): TranscodedAud
     throw new Error("Yoto returned invalid transcoded media information");
   }
   if (value.transcodedSha256 === undefined || value.transcodedSha256 === null) return null;
-  if (typeof value.transcodedSha256 !== "string" || !value.transcodedSha256 || !value.transcodedInfo) {
+  if (
+    typeof value.transcodedSha256 !== "string" ||
+    !value.transcodedSha256 ||
+    !value.transcodedInfo
+  ) {
     throw new Error("Yoto returned invalid transcoded media information");
   }
   const info = value.transcodedInfo;
   if (
-    !Number.isFinite(info.duration) || info.duration <= 0 ||
-    !Number.isFinite(info.fileSize) || info.fileSize <= 0 ||
+    !Number.isFinite(info.duration) ||
+    info.duration <= 0 ||
+    !Number.isFinite(info.fileSize) ||
+    info.fileSize <= 0 ||
     typeof info.format !== "string"
   ) {
     throw new Error("Yoto returned invalid transcoded media information");
@@ -134,16 +139,29 @@ async function requestUploadUrl(
   const url = new URL("/media/transcode/audio/uploadUrl", API_URL);
   url.searchParams.set("sha256", sourceSha256);
   url.searchParams.set("filename", path.basename(filePath));
-  const response = await request(options.fetch ?? fetch, url, {
-    headers: {
-      Authorization: `Bearer ${await options.getAccessToken()}`,
-      Accept: "application/json",
+  const response = await request(
+    options.fetch ?? fetch,
+    url,
+    {
+      headers: {
+        Authorization: `Bearer ${await options.getAccessToken()}`,
+        Accept: "application/json",
+      },
     },
-  }, `Requesting upload for ${path.basename(filePath)}`);
-  if (!response.ok) throw await responseError(response, `Requesting a Yoto upload URL for ${path.basename(filePath)}`);
+    `Requesting upload for ${path.basename(filePath)}`,
+  );
+  if (!response.ok)
+    throw await responseError(
+      response,
+      `Requesting a Yoto upload URL for ${path.basename(filePath)}`,
+    );
   const result = await readJson<UploadUrlResponse>(response, "Requesting upload");
-  if (typeof result.upload?.uploadId !== "string" || !result.upload.uploadId ||
-      (result.upload.uploadUrl !== null && (typeof result.upload.uploadUrl !== "string" || !result.upload.uploadUrl))) {
+  if (
+    typeof result.upload?.uploadId !== "string" ||
+    !result.upload.uploadId ||
+    (result.upload.uploadUrl !== null &&
+      (typeof result.upload.uploadUrl !== "string" || !result.upload.uploadUrl))
+  ) {
     throw new Error("Yoto did not return a usable upload destination");
   }
   return { uploadUrl: result.upload.uploadUrl, uploadId: result.upload.uploadId };
@@ -155,12 +173,19 @@ async function uploadFile(
   uploadUrl: string,
 ): Promise<void> {
   const blob = await openAsBlob(filePath, { type: "audio/mpeg" });
-  const response = await request(options.fetch ?? fetch, uploadUrl, {
-    method: "PUT",
-    headers: { "Content-Type": "audio/mpeg" },
-    body: blob,
-  }, `Uploading ${path.basename(filePath)}`, 10 * 60_000);
-  if (!response.ok) throw await responseError(response, `Uploading audio to Yoto: ${path.basename(filePath)}`);
+  const response = await request(
+    options.fetch ?? fetch,
+    uploadUrl,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "audio/mpeg" },
+      body: blob,
+    },
+    `Uploading ${path.basename(filePath)}`,
+    10 * 60_000,
+  );
+  if (!response.ok)
+    throw await responseError(response, `Uploading audio to Yoto: ${path.basename(filePath)}`);
 }
 
 async function waitForTranscode(
@@ -168,7 +193,9 @@ async function waitForTranscode(
   uploadId: string,
 ): Promise<TranscodedAudio> {
   const fetchImpl = options.fetch ?? fetch;
-  const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+  const sleep =
+    options.sleep ??
+    ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   const maxAttempts = options.maxPollAttempts ?? 120;
 
   const deadline = Date.now() + 10 * 60_000;
@@ -176,13 +203,21 @@ async function waitForTranscode(
   for (let attempt = 0; attempt < maxAttempts && Date.now() < deadline; attempt++) {
     const url = new URL(`/media/upload/${encodeURIComponent(uploadId)}/transcoded`, API_URL);
     url.searchParams.set("loudnorm", "false");
-    const response = await request(fetchImpl, url, {
-      headers: {
-        Authorization: `Bearer ${await options.getAccessToken()}`,
-        Accept: "application/json",
+    const response = await request(
+      fetchImpl,
+      url,
+      {
+        headers: {
+          Authorization: `Bearer ${await options.getAccessToken()}`,
+          Accept: "application/json",
+        },
       },
-    }, "Checking Yoto transcoding", Math.min(30_000, Math.max(1, deadline - Date.now())));
-    lastStatus = response.ok ? "processing is still pending" : `last HTTP status was ${response.status}`;
+      "Checking Yoto transcoding",
+      Math.min(30_000, Math.max(1, deadline - Date.now())),
+    );
+    lastStatus = response.ok
+      ? "processing is still pending"
+      : `last HTTP status was ${response.status}`;
     if (response.ok) {
       const result = await readJson<TranscodeResponse>(response, "Checking transcoding");
       const transcoded = validateTranscodedAudio(result.transcode ?? {});
@@ -198,7 +233,9 @@ async function waitForTranscode(
       await sleep(wait);
     }
   }
-  throw new Error(`Yoto transcoding timed out: ${lastStatus}. Saved upload progress is retained; rerun the same command later to resume polling.`);
+  throw new Error(
+    `Yoto transcoding timed out: ${lastStatus}. Saved upload progress is retained; rerun the same command later to resume polling.`,
+  );
 }
 
 export function buildPlaylistContent(title: string, uploadedTracks: UploadedTrack[]): object {
@@ -237,8 +274,14 @@ export function buildPlaylistContent(title: string, uploadedTracks: UploadedTrac
       ],
     };
   });
-  const duration = uploadedTracks.reduce((total, item) => total + item.audio.transcodedInfo.duration, 0);
-  const fileSize = uploadedTracks.reduce((total, item) => total + item.audio.transcodedInfo.fileSize, 0);
+  const duration = uploadedTracks.reduce(
+    (total, item) => total + item.audio.transcodedInfo.duration,
+    0,
+  );
+  const fileSize = uploadedTracks.reduce(
+    (total, item) => total + item.audio.transcodedInfo.fileSize,
+    0,
+  );
   return {
     title,
     content: {
@@ -254,9 +297,7 @@ export function buildPlaylistContent(title: string, uploadedTracks: UploadedTrac
 }
 
 export function buildSingleTrackContent(title: string, audio: TranscodedAudio): object {
-  return buildPlaylistContent(title, [
-    { track: { filePath: "", title, order: 1 }, audio },
-  ]);
+  return buildPlaylistContent(title, [{ track: { filePath: "", title, order: 1 }, audio }]);
 }
 
 async function createContent(
@@ -266,25 +307,35 @@ async function createContent(
 ): Promise<CreatedContent> {
   const content = buildPlaylistContent(options.title, uploadedTracks) as Record<string, unknown>;
   if (cardId) content.cardId = cardId;
-  const response = await request(options.fetch ?? fetch, new URL("/content", API_URL), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${await options.getAccessToken()}`,
-      Accept: "application/json",
-      "Content-Type": "application/json",
+  const response = await request(
+    options.fetch ?? fetch,
+    new URL("/content", API_URL),
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${await options.getAccessToken()}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(content),
     },
-    body: JSON.stringify(content),
-  }, cardId ? "Updating Yoto content" : "Creating Yoto content");
+    cardId ? "Updating Yoto content" : "Creating Yoto content",
+  );
   if (!response.ok) {
     const operation = cardId ? `Updating Yoto content ${cardId}` : "Creating Yoto content";
     const error = await responseError(response, operation);
     if (cardId && (response.status === 404 || error.deleted)) {
-      throw new Error(`${error.message}. If the remote content was deleted, retry with --new-copy.`);
+      throw new Error(
+        `${error.message}. If the remote content was deleted, retry with --new-copy.`,
+      );
     }
     throw error;
   }
   const result = await readJson<CreateContentResponse>(response, "Saving playlist");
-  if (typeof result.card?.cardId !== "string" || !result.card.cardId) throw new Error("Yoto did not return a content ID; check your library before retrying creation.");
+  if (typeof result.card?.cardId !== "string" || !result.card.cardId)
+    throw new Error(
+      "Yoto did not return a content ID; check your library before retrying creation.",
+    );
   return {
     cardId: result.card.cardId,
     title: result.card.title ?? options.title,
@@ -308,8 +359,12 @@ export async function uploadPlaylist(options: PlaylistUploadOptions): Promise<Cr
   const tracks = [...options.tracks].sort((left, right) => left.order - right.order);
   const preparedTracks: PreparedTrack[] = [];
   for (const track of tracks) {
-    const file = await stat(track.filePath).catch(error => { throw localError(error, "Inspecting MP3", track.filePath); });
-    await access(track.filePath, 4).catch(error => { throw localError(error, "Reading MP3", track.filePath); });
+    const file = await stat(track.filePath).catch((error) => {
+      throw localError(error, "Inspecting MP3", track.filePath);
+    });
+    await access(track.filePath, 4).catch((error) => {
+      throw localError(error, "Reading MP3", track.filePath);
+    });
     if (file.size === 0) throw new Error(`MP3 file is empty: ${track.filePath}`);
     if (!file.isFile()) throw new Error(`Not a file: ${track.filePath}`);
     if (path.extname(track.filePath).toLowerCase() !== ".mp3") {
@@ -385,7 +440,17 @@ export async function uploadPlaylist(options: PlaylistUploadOptions): Promise<Cr
       ...(cardId ? { cardId } : {}),
       completed,
       creating: completed ? false : creating,
-      tracks: preparedTracks.map(({ track: _track, ...stored }) => stored),
+      tracks: preparedTracks.map((prepared) => ({
+        key: prepared.key,
+        filePath: prepared.filePath,
+        title: prepared.title,
+        order: prepared.order,
+        size: prepared.size,
+        mtimeMs: prepared.mtimeMs,
+        ...(prepared.sourceSha256 ? { sourceSha256: prepared.sourceSha256 } : {}),
+        ...(prepared.uploadId ? { uploadId: prepared.uploadId } : {}),
+        ...(prepared.audio ? { audio: prepared.audio } : {}),
+      })),
       updatedAt: new Date().toISOString(),
     };
     await options.jobStore.put(job);
@@ -422,7 +487,7 @@ export async function uploadPlaylist(options: PlaylistUploadOptions): Promise<Cr
       options.callbacks?.onStatus?.(`${prefix} resuming pending transcode`);
     }
     options.callbacks?.onStatus?.(`${prefix} waiting for transcoding`);
-    const audio = await waitForTranscode(options, prepared.uploadId).catch(error => {
+    const audio = await waitForTranscode(options, prepared.uploadId).catch((error) => {
       throw new Error(`${prefix} ${error instanceof Error ? error.message : "Transcoding failed"}`);
     });
     prepared.audio = audio;
@@ -441,7 +506,8 @@ export async function uploadPlaylist(options: PlaylistUploadOptions): Promise<Cr
   } catch (error) {
     throw new Error(
       `Yoto content ${result.cardId} was saved, but its local checkpoint failed. Keep this content ID; ` +
-      "do not retry creation. " + (error instanceof Error ? error.message : String(error)),
+        "do not retry creation. " +
+        (error instanceof Error ? error.message : String(error)),
       { cause: error },
     );
   }
