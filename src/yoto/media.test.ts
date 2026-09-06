@@ -233,7 +233,7 @@ test("uploadPlaylist checkpoints tracks, resumes, and prevents duplicate content
       jobStore,
       jobKey: "local:album",
     }),
-    /simulated interruption/,
+    /second.mp3 could not reach Yoto/,
   );
   assert.equal(firstRunUploadRequests, 2);
 
@@ -401,7 +401,7 @@ for (const failure of ["response", "checkpoint", "before-request"] as const) {
       }) as typeof fetch,
     };
     await assert.rejects(uploadPlaylist(options),
-      failure === "checkpoint" ? /Card1.*local checkpoint failed/ : /disk failure|lost response/);
+      failure === "checkpoint" ? /Card1.*local checkpoint failed/ : /disk failure|could not reach Yoto/);
     store.put = put;
     if (failure === "before-request") {
       assert.equal(requests, 0);

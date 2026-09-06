@@ -153,7 +153,31 @@ node src/cli.ts download "https://www.youtube.com/playlist?list=PLFgquLnL59alCl_
 node src/cli.ts sync --output-dir ~/Music/New --title "New songs" "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 ```
 
-## Development
+## Errors and recovery
+
+Errors identify the failed operation and provide a next step. HTTP response
+bodies, authentication tokens, and signed upload URLs are not printed.
+
+| Failure | Next step |
+| --- | --- |
+| Missing session or rejected refresh token | Run `npm start -- auth login`, then rerun your command. |
+| Permission denied by Yoto (403) | Check your application's scopes and access to the content. |
+| Rate limit (429) | Wait for the indicated interval before resuming. |
+| Network failure or Yoto service error | Check connectivity or wait for the service, then resume. If creation was uncertain, check your library first. |
+| Transcoding timeout | Rerun the same command later; the saved upload ID allows polling to resume. |
+| Missing/deleted Yoto playlist | Use `--new-copy` if you want to create a replacement. Other validation errors do not imply deletion. |
+| Empty, missing, or unreadable MP3 | Fix the named file before rerunning. Missing metadata tags are acceptable. |
+| Invalid upload job | Preserve the named state file and restore a valid backup. Deleting it can lose the content ID and create duplicates. |
+| Local save failure | Fix disk space or permissions. If token rotation could not be saved, sign in again. If content was created, keep the printed content ID. |
+
+API and authentication requests have a 30-second deadline, including reading
+the response. Audio uploads have a ten-minute deadline. Transcoding polls are
+bounded by 120 attempts and ten minutes, honoring `Retry-After` when it fits
+within that window. Creation and token refresh requests are never automatically
+retried. Uncertain or corrupt job state stops sync before YouTube inspection
+or downloading begins.
+
+## Development commands
 
 ```sh
 npm install        # install dev dependencies

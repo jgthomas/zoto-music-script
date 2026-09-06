@@ -1,6 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { parseFile } from "music-metadata";
+import { localError } from "./local-errors.ts";
 
 export interface YouTubeTrackSource {
   kind: "youtube";
@@ -50,10 +51,12 @@ export async function discoverLocalTracks(inputs: string[]): Promise<LocalTrack[
       if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
         throw new Error(`File or directory does not exist: ${resolved}`);
       }
-      throw error;
+      throw localError(error, "Inspecting input", resolved);
     }
     if (details.isDirectory()) {
-      const entries = await readdir(resolved, { withFileTypes: true });
+      const entries = await readdir(resolved, { withFileTypes: true }).catch(error => {
+        throw localError(error, "Reading directory", resolved);
+      });
       const mp3s = entries
         .filter((entry) => entry.isFile() && path.extname(entry.name).toLowerCase() === ".mp3")
         .map((entry) => path.join(resolved, entry.name))

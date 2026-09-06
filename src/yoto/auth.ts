@@ -3,6 +3,8 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { StoredTokens, TokenStore } from "./token-store.ts";
 
+import { request, responseError, readJson } from "./request.ts";
+
 const AUTHORIZE_URL = "https://login.yotoplay.com/authorize";
 const TOKEN_URL = "https://login.yotoplay.com/oauth/token";
 const AUDIENCE = "https://api.yotoplay.com";
@@ -47,11 +49,14 @@ function jwtExpiry(token: string): number | null {
 }
 
 function toStoredTokens(response: TokenResponse): StoredTokens {
-  if (!response.access_token || !response.refresh_token) {
+  if (typeof response.access_token !== "string" || !response.access_token || typeof response.refresh_token !== "string" || !response.refresh_token) {
     throw new Error("Yoto token response did not contain the required tokens");
   }
   const expiresAt =
     jwtExpiry(response.access_token) ?? Date.now() + (response.expires_in ?? 3600) * 1000;
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    throw new Error("Yoto returned invalid token expiry information. Run npm start -- auth login again.");
+  }
   return {
     accessToken: response.access_token,
     refreshToken: response.refresh_token,
@@ -60,16 +65,13 @@ function toStoredTokens(response: TokenResponse): StoredTokens {
 }
 
 async function requestTokens(fetchImpl: typeof fetch, body: URLSearchParams): Promise<StoredTokens> {
-  const response = await fetchImpl(TOKEN_URL, {
+  const response = await request(fetchImpl, TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
-  });
-  if (!response.ok) {
-    const detail = (await response.text()).trim();
-    throw new Error(`Yoto authentication failed (${response.status})${detail ? `: ${detail}` : ""}`);
-  }
-  return toStoredTokens((await response.json()) as TokenResponse);
+  }, "Yoto authentication");
+  if (!response.ok) throw await responseError(response, "Yoto authentication");
+  return toStoredTokens(await readJson<TokenResponse>(response, "Yoto authentication"));
 }
 
 export function createPkceRequest(
@@ -132,7 +134,7 @@ export async function refreshAccessToken(
 
 export async function getAccessToken(options: AuthOptions): Promise<string> {
   const tokens = await options.tokenStore.read();
-  if (!tokens) throw new Error("Not signed in to Yoto. Run `zoto-music auth login` first.");
+  if (!tokens) throw new Error("Not signed in to Yoto. Run `npm start -- auth login` first.");
   if (tokens.expiresAt > Date.now() + EXPIRY_BUFFER_MS) return tokens.accessToken;
   return (await refreshAccessToken(options, tokens.refreshToken)).accessToken;
 }

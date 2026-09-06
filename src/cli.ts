@@ -419,6 +419,7 @@ const isMain =
 
 if (isMain) {
   main().catch((err) => {
+    clearProgressLine();
     process.stderr.write(`${RED}error:${RESET} ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);
   });

@@ -1,3 +1,4 @@
+import { checkUploadRecovery } from "./yoto/recovery.ts";
 import type { Config } from "./config.ts";
 import { downloadVideo, type DownloadCallbacks, type DownloadResult } from "./download.ts";
 import type { DownloadManifest } from "./download-manifest.ts";
@@ -47,6 +48,7 @@ export async function syncYoutubeToYoto(
   options: SyncOptions,
   dependencies: SyncDependencies = defaultDependencies,
 ): Promise<SyncResult> {
+  await checkUploadRecovery(options);
   const probe = await dependencies.probe(options.url, options.config.ytDlpBin);
   options.onProbe?.(probe);
   const download = await dependencies.download({
