@@ -1,6 +1,7 @@
 import type { Config } from "./config.ts";
 import { downloadVideo, type DownloadCallbacks, type DownloadResult } from "./download.ts";
 import type { DownloadManifest } from "./download-manifest.ts";
+import type { UploadJobStore } from "./yoto/job-store.ts";
 import { probeUrl, type ProbeResult } from "./probe.ts";
 import {
   uploadPlaylist,
@@ -17,6 +18,11 @@ export interface SyncOptions {
   downloadCallbacks?: DownloadCallbacks;
   uploadCallbacks?: UploadCallbacks;
   onProbe?: (probe: ProbeResult) => void;
+  jobStore?: UploadJobStore;
+  jobKey?: string;
+  restart?: boolean;
+  newCopy?: boolean;
+  retryCreate?: boolean;
 }
 
 export interface SyncResult {
@@ -59,6 +65,11 @@ export async function syncYoutubeToYoto(
     title: options.title?.trim() || probe.title,
     getAccessToken: options.getAccessToken,
     callbacks: options.uploadCallbacks,
+    jobStore: options.jobStore,
+    jobKey: options.jobKey,
+    restart: options.restart,
+    newCopy: options.newCopy,
+    retryCreate: options.retryCreate,
   });
   return { probe, download, content };
 }

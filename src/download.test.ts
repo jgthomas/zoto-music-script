@@ -12,6 +12,7 @@ const config: Config = {
   downloadManifestPath: "/tmp/downloads.json",
   ytDlpBin: "yt-dlp",
   yotoTokenPath: "/tmp/zoto-music-test-auth.json",
+  yotoJobsPath: "/tmp/zoto-music-test-jobs.json",
 };
 
 test("buildOutputTemplate for a single video", () => {

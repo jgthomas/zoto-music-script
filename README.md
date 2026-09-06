@@ -23,6 +23,12 @@ The equivalent explicit command supports a custom Yoto playlist title:
 npm start -- sync --title "My playlist" <youtube-url>
 ```
 
+Interrupted syncs resume automatically. Completed syncs are checked against
+their saved state; unchanged content is not uploaded or created again, while
+changed tracks or titles update the existing Yoto content.
+Cached MP3s are hashed again before reuse, even when their size and modification
+time match. This adds a local file read but avoids reusing stale audio.
+
 Download and upload can also be run independently. To download without creating
 Yoto content:
 
@@ -78,6 +84,44 @@ If `--title` is omitted, the directory, single-track title, or common parent
 directory name is used. Once the playlist has been created, open the Yoto app
 to link it to a physical Make Your Own card.
 
+Uploads also resume automatically and update the previously created playlist.
+Use `--restart` to discard cached hashing/transcoding progress while retaining
+the existing Yoto content ID, or `--new-copy` to intentionally create a separate
+playlist:
+
+```sh
+npm start -- upload --restart ./album/
+npm start -- upload --new-copy ./album/
+```
+
+Before creating a new playlist, the tool saves a pending creation marker. If
+the request loses its response, the process exits, or the final local save fails,
+the next run stops with an "outcome is unknown" message instead of creating again.
+Check your Yoto library. Only if the playlist was not created, explicitly retry:
+
+```sh
+npm start -- upload --retry-create ./album/
+# Also supported by sync:
+npm start -- sync --retry-create <youtube-url>
+```
+
+If the playlist already exists, do not use --retry-create: doing so can create
+a duplicate. Keep its content ID for recovery; automatic attachment to an existing
+playlist is not currently implemented. When the response was received but the
+local save failed, the error prints the returned content ID.
+--restart preserves an uncertain creation marker. --retry-create cannot be
+combined with --new-copy, which intentionally starts a separate job.
+An interruption immediately before the creation request can also leave this
+marker; checking the library is still required. This protection applies to jobs
+created with this version; it cannot detect uncertain requests from older versions.
+
+Upload jobs are stored with user-only permissions in
+`~/.local/state/zoto-music/yoto-jobs/` (or beneath `$XDG_STATE_HOME`). Each job
+is stored in its own atomic JSON file, so concurrent uploads for different
+sources cannot overwrite one another. Jobs record local file fingerprints,
+source and transcoded hashes, pending upload IDs, and created Yoto content IDs.
+Do not run two uploads for the same source concurrently.
+
 The download and upload layers share a source-neutral local track model. Local
 MP3 directories are naturally ordered and use embedded titles when available.
 
@@ -91,6 +135,9 @@ MP3 directories are naturally ordered and use embedded titles when available.
 | `--archive FILE`     | `~/.cache/zoto-music/archive.txt` | Skip videos already downloaded       |
 | `--yt-dlp PATH`      | `yt-dlp`                       | Path to the yt-dlp binary                |
 | `--title TITLE`      | YouTube title                  | Yoto playlist title (`sync` only)        |
+| `--restart`          |                                | Reprocess cached work and update content |
+| `--new-copy`         |                                | Intentionally create separate content   |
+| `--retry-create`     |                                | Retry uncertain creation after checking the library |
 | `-h, --help`         |                                | Show help                                |
 
 ### Examples

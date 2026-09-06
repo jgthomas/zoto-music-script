@@ -8,10 +8,12 @@ import { parseArgs } from "node:util";
 import { defaultConfig } from "./config.ts";
 import { downloadVideo } from "./download.ts";
 import { DownloadManifest } from "./download-manifest.ts";
+import { localUploadJobKey, syncJobKey } from "./job-key.ts";
 import { probeUrl } from "./probe.ts";
 import { discoverLocalTracks } from "./tracks.ts";
 import { syncYoutubeToYoto } from "./sync.ts";
 import { getAccessToken, login } from "./yoto/auth.ts";
+import { UploadJobStore } from "./yoto/job-store.ts";
 import { uploadPlaylist } from "./yoto/media.ts";
 import { FileTokenStore } from "./yoto/token-store.ts";
 
@@ -26,7 +28,7 @@ const HELP = `${BOLD}Usage:${RESET} node src/cli.ts download [options] <url> [mo
        node src/cli.ts sync [options] [--title TITLE] <url>
        node src/cli.ts [options] [--title TITLE] <url>
        node src/cli.ts auth <login|status|logout>
-       node src/cli.ts upload [--title TITLE] <file-or-directory> [...]
+       node src/cli.ts upload [--title TITLE] [--restart|--new-copy] <file-or-directory> [...]
 
 ${BOLD}Options:${RESET}
   --output-dir DIR    Where MP3s are saved (default: ~/Music)
@@ -35,6 +37,9 @@ ${BOLD}Options:${RESET}
   --archive FILE      Skip videos already downloaded (default: ~/.cache/zoto-music/archive.txt)
   --yt-dlp PATH       Path to the yt-dlp binary (default: yt-dlp)
   --title TITLE       Yoto playlist title for sync (default: YouTube title)
+  --restart           Reprocess cached tracks and update the existing playlist
+  --new-copy          Intentionally create a separate Yoto playlist
+  --retry-create      Retry uncertain creation after checking no playlist exists
   -h, --help          Show this help
 
 ${BOLD}Examples:${RESET}
@@ -42,10 +47,11 @@ ${BOLD}Examples:${RESET}
   node src/cli.ts sync "https://www.youtube.com/playlist?list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI"
 `;
 
-const UPLOAD_HELP = `${BOLD}Usage:${RESET} node src/cli.ts upload [--title TITLE] <file-or-directory> [...]
+const UPLOAD_HELP = `${BOLD}Usage:${RESET} node src/cli.ts upload [--title TITLE] [--restart|--new-copy] <file-or-directory> [...]
 
 Upload MP3 files and create one playlist in your Yoto MYO library.
 Directory contents are naturally ordered; explicit file arguments retain their order.
+Use --retry-create only after confirming an uncertain creation did not produce a playlist.
 `;
 
 const AUTH_HELP = `${BOLD}Usage:${RESET} node src/cli.ts auth <login|status|logout>
@@ -65,12 +71,15 @@ export interface CliValues {
   archive?: string;
   "yt-dlp"?: string;
   title?: string;
+  restart?: boolean;
+  "new-copy"?: boolean;
+  "retry-create"?: boolean;
   help: boolean;
 }
 
 export function parseCli(
   argv: string[],
-  options: { allowTitle?: boolean } = {},
+  options: { allowTitle?: boolean; allowUploadState?: boolean } = {},
 ): { values: CliValues; urls: string[] } {
   let noThumbnail = false;
   const args = argv.filter((a) => {
@@ -91,6 +100,13 @@ export function parseCli(
       archive: { type: "string" },
       "yt-dlp": { type: "string" },
       ...(options.allowTitle ? { title: { type: "string" as const } } : {}),
+      ...(options.allowUploadState
+        ? {
+            restart: { type: "boolean" as const, default: false },
+            "new-copy": { type: "boolean" as const, default: false },
+            "retry-create": { type: "boolean" as const, default: false },
+          }
+        : {}),
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -169,6 +185,9 @@ async function runUploadCommand(args: string[]): Promise<void> {
     allowPositionals: true,
     options: {
       title: { type: "string" },
+      restart: { type: "boolean", default: false },
+      "new-copy": { type: "boolean", default: false },
+      "retry-create": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -177,6 +196,12 @@ async function runUploadCommand(args: string[]): Promise<void> {
     return;
   }
   if (positionals.length === 0) throw new Error("upload requires an MP3 file or directory");
+  if (values["retry-create"] && values["new-copy"]) {
+    throw new Error("--retry-create and --new-copy cannot be used together");
+  }
+  if (values.restart && values["new-copy"]) {
+    throw new Error("--restart and --new-copy cannot be used together");
+  }
 
   const config = defaultConfig();
   if (!config.yotoClientId) throw new Error("YOTO_CLIENT_ID is required for Yoto uploads");
@@ -191,28 +216,46 @@ async function runUploadCommand(args: string[]): Promise<void> {
   const title = values.title?.trim() || defaultTitle || "My Playlist";
   const tokenStore = new FileTokenStore(config.yotoTokenPath);
   const authOptions = { clientId: config.yotoClientId, tokenStore };
+  const jobStore = new UploadJobStore(config.yotoJobsPath);
 
   process.stdout.write(`${BOLD}${title}${RESET} (${tracks.length} track${tracks.length === 1 ? "" : "s"})\n`);
   const result = await uploadPlaylist({
     tracks,
     title,
     getAccessToken: () => getAccessToken(authOptions),
+    jobStore,
+    jobKey: localUploadJobKey(positionals),
+    restart: values.restart,
+    newCopy: values["new-copy"],
+    retryCreate: values["retry-create"],
     callbacks: {
       onStatus: (status) => process.stdout.write(`  ${DIM}${status}${RESET}\n`),
     },
   });
-  process.stdout.write(`${GREEN}Yoto playlist created:${RESET} ${result.title}\n`);
+  const action =
+    result.operation === "unchanged"
+      ? "Yoto playlist unchanged"
+      : result.operation === "updated"
+        ? "Yoto playlist updated"
+        : "Yoto playlist created";
+  process.stdout.write(`${GREEN}${action}:${RESET} ${result.title}\n`);
   process.stdout.write(`Content ID: ${result.cardId}\n`);
   process.stdout.write("Open the Yoto app to link this playlist to a Make Your Own card.\n");
 }
 
 async function runSyncCommand(args: string[]): Promise<void> {
-  const { values, urls } = parseCli(args, { allowTitle: true });
+  const { values, urls } = parseCli(args, { allowTitle: true, allowUploadState: true });
   if (values.help) {
     process.stdout.write(HELP);
     return;
   }
   if (urls.length !== 1) throw new Error("sync requires exactly one YouTube URL");
+  if (values["retry-create"] && values["new-copy"]) {
+    throw new Error("--retry-create and --new-copy cannot be used together");
+  }
+  if (values.restart && values["new-copy"]) {
+    throw new Error("--restart and --new-copy cannot be used together");
+  }
 
   const config = defaultConfig();
   applyDownloadOptions(config, values);
@@ -221,6 +264,7 @@ async function runSyncCommand(args: string[]): Promise<void> {
   const manifest = new DownloadManifest(config.downloadManifestPath);
   const tokenStore = new FileTokenStore(config.yotoTokenPath);
   const authOptions = { clientId: config.yotoClientId, tokenStore };
+  const jobStore = new UploadJobStore(config.yotoJobsPath);
   // Fail before starting a potentially long download if the Yoto session is
   // missing or cannot be refreshed.
   await getAccessToken(authOptions);
@@ -231,6 +275,11 @@ async function runSyncCommand(args: string[]): Promise<void> {
     config,
     manifest,
     getAccessToken: () => getAccessToken(authOptions),
+    jobStore,
+    jobKey: syncJobKey(urls[0]),
+    restart: values.restart,
+    newCopy: values["new-copy"],
+    retryCreate: values["retry-create"],
     onProbe: (probe) => {
       const count = probe.kind === "playlist" && probe.count > 0 ? ` (${probe.count} videos)` : "";
       const kind = probe.kind === "playlist" ? "Playlist" : "Single video";
@@ -262,7 +311,13 @@ async function runSyncCommand(args: string[]): Promise<void> {
     },
   });
   clearProgressLine();
-  process.stdout.write(`${GREEN}Yoto playlist created:${RESET} ${result.content.title}\n`);
+  const action =
+    result.content.operation === "unchanged"
+      ? "Yoto playlist unchanged"
+      : result.content.operation === "updated"
+        ? "Yoto playlist updated"
+        : "Yoto playlist created";
+  process.stdout.write(`${GREEN}${action}:${RESET} ${result.content.title}\n`);
   process.stdout.write(`Content ID: ${result.content.cardId}\n`);
   process.stdout.write("Open the Yoto app to link this playlist to a Make Your Own card.\n");
 }

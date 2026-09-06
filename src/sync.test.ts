@@ -13,6 +13,7 @@ const config: Config = {
   downloadManifestPath: "/state/downloads.json",
   ytDlpBin: "yt-dlp",
   yotoTokenPath: "/config/yoto-auth.json",
+  yotoJobsPath: "/state/yoto-jobs.json",
 };
 
 const manifest = {} as DownloadManifest;

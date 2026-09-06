@@ -1,8 +1,14 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, openAsBlob } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import type { LocalTrack } from "../tracks.ts";
+import {
+  type UploadJob,
+  type UploadJobTrack,
+  type UploadJobStore,
+  uploadTrackKey,
+} from "./job-store.ts";
 
 const API_URL = "https://api.yotoplay.com";
 
@@ -22,6 +28,8 @@ export interface TranscodedAudio {
 export interface CreatedContent {
   cardId: string;
   title: string;
+  operation?: "created" | "updated" | "unchanged";
+  jobKey?: string;
 }
 
 export interface UploadCallbacks {
@@ -46,11 +54,20 @@ export interface PlaylistUploadOptions {
   sleep?: (milliseconds: number) => Promise<void>;
   maxPollAttempts?: number;
   callbacks?: UploadCallbacks;
+  jobStore?: UploadJobStore;
+  jobKey?: string;
+  restart?: boolean;
+  newCopy?: boolean;
+  retryCreate?: boolean;
 }
 
 interface UploadedTrack {
   track: LocalTrack;
   audio: TranscodedAudio;
+}
+
+interface PreparedTrack extends UploadJobTrack {
+  track: LocalTrack;
 }
 
 interface UploadUrlResponse {
@@ -232,7 +249,10 @@ export function buildSingleTrackContent(title: string, audio: TranscodedAudio): 
 async function createContent(
   options: PlaylistUploadOptions,
   uploadedTracks: UploadedTrack[],
+  cardId?: string,
 ): Promise<CreatedContent> {
+  const content = buildPlaylistContent(options.title, uploadedTracks) as Record<string, unknown>;
+  if (cardId) content.cardId = cardId;
   const response = await (options.fetch ?? fetch)(new URL("/content", API_URL), {
     method: "POST",
     headers: {
@@ -240,12 +260,23 @@ async function createContent(
       Accept: "application/json",
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(buildPlaylistContent(options.title, uploadedTracks)),
+    body: JSON.stringify(content),
   });
-  if (!response.ok) throw await responseError(response, "Creating Yoto content");
+  if (!response.ok) {
+    const operation = cardId ? `Updating Yoto content ${cardId}` : "Creating Yoto content";
+    const error = await responseError(response, operation);
+    if (cardId && (response.status === 400 || response.status === 404)) {
+      throw new Error(`${error.message}. If the remote content was deleted, retry with --new-copy.`);
+    }
+    throw error;
+  }
   const result = (await response.json()) as CreateContentResponse;
   if (!result.card?.cardId) throw new Error("Yoto did not return a content ID");
-  return { cardId: result.card.cardId, title: result.card.title ?? options.title };
+  return {
+    cardId: result.card.cardId,
+    title: result.card.title ?? options.title,
+    operation: cardId ? "updated" : "created",
+  };
 }
 
 export async function uploadSingleTrack(options: UploadOptions): Promise<CreatedContent> {
@@ -257,32 +288,153 @@ export async function uploadSingleTrack(options: UploadOptions): Promise<Created
 
 export async function uploadPlaylist(options: PlaylistUploadOptions): Promise<CreatedContent> {
   if (options.tracks.length === 0) throw new Error("At least one local track is required");
+  if ((options.jobStore && !options.jobKey) || (!options.jobStore && options.jobKey)) {
+    throw new Error("Upload jobStore and jobKey must be provided together");
+  }
   const tracks = [...options.tracks].sort((left, right) => left.order - right.order);
+  const preparedTracks: PreparedTrack[] = [];
   for (const track of tracks) {
     const file = await stat(track.filePath);
     if (!file.isFile()) throw new Error(`Not a file: ${track.filePath}`);
     if (path.extname(track.filePath).toLowerCase() !== ".mp3") {
       throw new Error(`Only MP3 files are currently supported: ${track.filePath}`);
     }
+    preparedTracks.push({
+      key: uploadTrackKey(track),
+      filePath: track.filePath,
+      title: track.title,
+      order: track.order,
+      size: file.size,
+      mtimeMs: file.mtimeMs,
+      track,
+    });
   }
 
+  const effectiveJobKey = options.newCopy
+    ? `${options.jobKey ?? "upload"}#${randomUUID()}`
+    : options.jobKey;
+  let existingJob =
+    options.jobStore && effectiveJobKey ? await options.jobStore.get(effectiveJobKey) : null;
+  if (options.retryCreate && (!options.jobStore || options.newCopy)) {
+    throw new Error("--retry-create requires a saved job and cannot be used with --new-copy");
+  }
+  if (existingJob?.creating && !existingJob.cardId && !options.retryCreate) {
+    throw new Error(
+      "The previous Yoto playlist creation outcome is unknown. Check your Yoto library before continuing. " +
+      "If no playlist was created, rerun with --retry-create. --restart does not clear this warning.",
+    );
+  }
+  if (options.restart && existingJob) {
+    options.callbacks?.onStatus?.("restarting cached upload work");
+    existingJob = { ...existingJob, completed: false, tracks: [] };
+  }
+  const cachedByKey = new Map(existingJob?.tracks.map((track) => [track.key, track]) ?? []);
+  for (const prepared of preparedTracks) {
+    const cached = cachedByKey.get(prepared.key);
+    if (cached && cached.size === prepared.size && cached.mtimeMs === prepared.mtimeMs) {
+      options.callbacks?.onStatus?.(`${prepared.title}: verifying cached audio hash`);
+      prepared.sourceSha256 = await sha256File(prepared.filePath);
+      if (cached.sourceSha256 === prepared.sourceSha256) {
+        prepared.uploadId = cached.uploadId;
+        prepared.audio = cached.audio;
+      }
+    }
+  }
+
+  const unchanged =
+    existingJob?.completed === true &&
+    existingJob.cardId !== undefined &&
+    existingJob.title === options.title &&
+    existingJob.tracks.length === preparedTracks.length &&
+    preparedTracks.every((track, index) => {
+      const previous = existingJob?.tracks[index];
+      return (
+        previous?.key === track.key &&
+        previous.title === track.title &&
+        previous.order === track.order &&
+        previous.size === track.size &&
+        previous.mtimeMs === track.mtimeMs &&
+        track.sourceSha256 === previous.sourceSha256 &&
+        track.audio !== undefined &&
+        previous.audio !== undefined
+      );
+    });
+  if (unchanged && existingJob?.cardId) {
+    options.callbacks?.onStatus?.("playlist is already up to date");
+    return {
+      cardId: existingJob.cardId,
+      title: existingJob.title,
+      operation: "unchanged",
+      ...(effectiveJobKey ? { jobKey: effectiveJobKey } : {}),
+    };
+  }
+
+  let creating = existingJob?.creating ?? false;
+  const checkpoint = async (completed: boolean, cardId = existingJob?.cardId) => {
+    if (!options.jobStore || !effectiveJobKey) return;
+    const job: UploadJob = {
+      key: effectiveJobKey,
+      title: options.title,
+      ...(cardId ? { cardId } : {}),
+      completed,
+      creating: completed ? false : creating,
+      tracks: preparedTracks.map(({ track: _track, ...stored }) => stored),
+      updatedAt: new Date().toISOString(),
+    };
+    await options.jobStore.put(job);
+  };
+
   const uploadedTracks: UploadedTrack[] = [];
-  for (const [index, track] of tracks.entries()) {
+  for (const [index, prepared] of preparedTracks.entries()) {
+    const { track } = prepared;
     const prefix = `[${index + 1}/${tracks.length}] ${track.title}:`;
-    options.callbacks?.onStatus?.(`${prefix} hashing audio`);
-    const sourceSha256 = await sha256File(track.filePath);
-    options.callbacks?.onStatus?.(`${prefix} requesting upload`);
-    const upload = await requestUploadUrl(options, track.filePath, sourceSha256);
-    if (upload.uploadUrl) {
-      options.callbacks?.onStatus?.(`${prefix} uploading audio`);
-      await uploadFile(options, track.filePath, upload.uploadUrl);
+    if (prepared.audio) {
+      options.callbacks?.onStatus?.(`${prefix} reusing completed transcode`);
+      uploadedTracks.push({ track, audio: prepared.audio });
+      continue;
+    }
+    if (!prepared.sourceSha256) {
+      options.callbacks?.onStatus?.(`${prefix} hashing audio`);
+      prepared.sourceSha256 = await sha256File(track.filePath);
+      await checkpoint(false);
     } else {
-      options.callbacks?.onStatus?.(`${prefix} already exists in Yoto media storage`);
+      options.callbacks?.onStatus?.(`${prefix} reusing cached source hash`);
+    }
+    if (!prepared.uploadId) {
+      options.callbacks?.onStatus?.(`${prefix} requesting upload`);
+      const upload = await requestUploadUrl(options, track.filePath, prepared.sourceSha256);
+      if (upload.uploadUrl) {
+        options.callbacks?.onStatus?.(`${prefix} uploading audio`);
+        await uploadFile(options, track.filePath, upload.uploadUrl);
+      } else {
+        options.callbacks?.onStatus?.(`${prefix} already exists in Yoto media storage`);
+      }
+      prepared.uploadId = upload.uploadId;
+      await checkpoint(false);
+    } else {
+      options.callbacks?.onStatus?.(`${prefix} resuming pending transcode`);
     }
     options.callbacks?.onStatus?.(`${prefix} waiting for transcoding`);
-    const audio = await waitForTranscode(options, upload.uploadId);
+    const audio = await waitForTranscode(options, prepared.uploadId);
+    prepared.audio = audio;
     uploadedTracks.push({ track, audio });
+    await checkpoint(false);
   }
-  options.callbacks?.onStatus?.("creating MYO playlist");
-  return createContent(options, uploadedTracks);
+  const existingCardId = options.newCopy ? undefined : existingJob?.cardId;
+  options.callbacks?.onStatus?.(existingCardId ? "updating MYO playlist" : "creating MYO playlist");
+  if (!existingCardId) {
+    creating = true;
+    await checkpoint(false);
+  }
+  const result = await createContent(options, uploadedTracks, existingCardId);
+  try {
+    await checkpoint(true, result.cardId);
+  } catch (error) {
+    throw new Error(
+      `Yoto content ${result.cardId} was saved, but its local checkpoint failed. Keep this content ID; ` +
+      "do not retry creation. " + (error instanceof Error ? error.message : String(error)),
+      { cause: error },
+    );
+  }
+  return { ...result, ...(effectiveJobKey ? { jobKey: effectiveJobKey } : {}) };
 }

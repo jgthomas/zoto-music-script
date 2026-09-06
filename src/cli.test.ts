@@ -55,3 +55,18 @@ test("parseCli accepts a sync playlist title only when enabled", () => {
   assert.equal(values.title, "Bedtime songs");
   assert.deepEqual(urls, ["https://example.com/playlist"]);
 });
+
+test("parseCli accepts explicit creation recovery when enabled", () => {
+  const result = parseCli(["--retry-create", "https://example.test/video"], { allowUploadState: true });
+  assert.equal(result.values["retry-create"], true);
+  assert.throws(() => parseCli(["--retry-create"]));
+});
+
+test("parseCli accepts sync upload-state controls when enabled", () => {
+  const { values } = parseCli(
+    ["--restart", "--title", "Updated", "https://example.com/playlist"],
+    { allowTitle: true, allowUploadState: true },
+  );
+  assert.equal(values.restart, true);
+  assert.equal(values["new-copy"], false);
+});

@@ -27,4 +27,12 @@ test("defaultConfig returns expected defaults", () => {
       "yoto-auth.json",
     ),
   );
+  assert.equal(
+    c.yotoJobsPath,
+    path.join(
+      process.env.XDG_STATE_HOME ?? path.join(os.homedir(), ".local", "state"),
+      "zoto-music",
+      "yoto-jobs",
+    ),
+  );
 });
