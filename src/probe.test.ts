@@ -1,6 +1,9 @@
 import { strict as assert } from "node:assert";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { test } from "node:test";
-import { parseProbeOutput } from "./probe.ts";
+import os from "node:os";
+import path from "node:path";
+import { parseProbeOutput, probeUrl } from "./probe.ts";
 
 test("parseProbeOutput detects a single video", () => {
   const r = parseProbeOutput(
@@ -42,4 +45,60 @@ test("parseProbeOutput preserves delimiters and rejects malformed metadata", () 
   );
   assert.equal(result.title, "Songs | Sleep");
   assert.deepEqual(parseProbeOutput("not-json"), { kind: "single", title: "", count: 0 });
+});
+
+test("probeUrl invokes yt-dlp with JSON metadata output", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "zoto-probe-process-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const executable = path.join(directory, "fake-yt-dlp");
+  await writeFile(
+    executable,
+    `#!/bin/sh
+printf '%s\\n' "$@" > "$0.args"
+printf '%s\\n' '{"playlist":"PL1","playlistTitle":"Songs | Sleep","count":2,"title":"First"}'
+`,
+    { mode: 0o700 },
+  );
+  await chmod(executable, 0o700);
+
+  assert.deepEqual(await probeUrl("https://youtube.test/list", executable), {
+    kind: "playlist",
+    title: "Songs | Sleep",
+    count: 2,
+  });
+  assert.deepEqual((await readFile(`${executable}.args`, "utf8")).trim().split("\n"), [
+    "--flat-playlist",
+    "--print",
+    '{"playlist":%(playlist)j,"playlistTitle":%(playlist_title)j,"count":%(playlist_count)j,"title":%(title)j}',
+    "--no-warnings",
+    "--",
+    "https://youtube.test/list",
+  ]);
+});
+
+test("probeUrl wraps yt-dlp failures", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "zoto-probe-failure-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const executable = path.join(directory, "fake-yt-dlp");
+  await writeFile(executable, "#!/bin/sh\nprintf 'invalid URL' >&2\nexit 7\n", { mode: 0o700 });
+  await chmod(executable, 0o700);
+
+  await assert.rejects(
+    probeUrl("https://youtube.test/bad", executable),
+    /Could not inspect URL with yt-dlp:\ninvalid URL/,
+  );
+});
+
+test("probeUrl rejects empty usable metadata", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "zoto-probe-empty-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const executable = path.join(directory, "fake-yt-dlp");
+  await writeFile(
+    executable,
+    '#!/bin/sh\nprintf \'%s\\n\' \'{"playlist":NA,"playlistTitle":NA,"count":NA,"title":""}\'\n',
+    { mode: 0o700 },
+  );
+  await chmod(executable, 0o700);
+
+  await assert.rejects(probeUrl("https://youtube.test/empty", executable), /no usable metadata/);
 });

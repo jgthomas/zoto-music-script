@@ -4,11 +4,12 @@ import type { Config } from "./config.ts";
 import {
   buildArgs,
   buildOutputTemplate,
+  downloadVideo,
   parseOutputLine,
   recoverArchivedTracks,
 } from "./download.ts";
 import { DownloadManifest } from "./download-manifest.ts";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ProbeResult } from "./probe.ts";
@@ -169,6 +170,77 @@ test("recoverArchivedTracks reattaches archive-skipped videos to the current pla
       playlistIndex: track.source?.playlistIndex,
     })),
     [{ order: 2, requestUrl: "https://youtube.test/new", playlistIndex: 2 }],
+  );
+});
+
+test("downloadVideo recovers archive-skipped playlist tracks from yt-dlp output", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "zoto-download-process-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const archivedPath = path.join(directory, "archived.mp3");
+  const downloadedPath = path.join(directory, "downloaded.mp3");
+  await Promise.all([writeFile(archivedPath, "old audio"), writeFile(downloadedPath, "new audio")]);
+  const executable = path.join(directory, "fake-yt-dlp");
+  await writeFile(
+    executable,
+    `#!/bin/sh
+printf '[download] Downloading item 1'
+printf ' of 2\\n'
+printf '[download] archived-id has already '
+printf 'been recorded in the archive\\n'
+printf '[download] Downloading item 2 of 2\\n'
+printf 'TRACK:{"id":"new-id","title":"New","webpageUrl":"https://youtube.test/new-id","playlistTitle":"Current","playlistIndex":2,"filePath":"${downloadedPath}"}\\n'
+printf 'a diagnostic split' >&2
+printf ' across chunks\\n' >&2
+`,
+    { mode: 0o700 },
+  );
+  await chmod(executable, 0o700);
+  const manifest = new DownloadManifest(path.join(directory, "downloads.json"));
+  await manifest.record([
+    {
+      filePath: archivedPath,
+      title: "Archived",
+      order: 8,
+      source: {
+        kind: "youtube",
+        id: "archived-id",
+        url: "https://youtube.test/archived-id",
+        requestUrl: "https://youtube.test/previous",
+      },
+    },
+  ]);
+
+  const result = await downloadVideo({
+    url: "https://youtube.test/current",
+    probe: { kind: "playlist", title: "Current", count: 2 },
+    config: {
+      ...config,
+      ytDlpBin: executable,
+      outputDir: directory,
+      archivePath: path.join(directory, "archive.txt"),
+      downloadManifestPath: manifest.filePath,
+    },
+    manifest,
+  });
+
+  assert.equal(result.downloadedCount, 1);
+  assert.equal(result.skipped, true);
+  assert.deepEqual(
+    result.tracks.map((track) => [track.source?.id, track.order]),
+    [
+      ["archived-id", 1],
+      ["new-id", 2],
+    ],
+  );
+  assert.deepEqual(
+    (await manifest.tracksForRequest("https://youtube.test/current")).map((track) => [
+      track.source?.id,
+      track.order,
+    ]),
+    [
+      ["archived-id", 1],
+      ["new-id", 2],
+    ],
   );
 });
 

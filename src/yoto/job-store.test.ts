@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import os from "node:os";
 import path from "node:path";
@@ -79,6 +79,41 @@ test("UploadJobStore finds one unfinished copy job by its stable source key", as
     updatedAt: "2026-01-01T00:00:00.000Z",
   });
   assert.equal((await store.findIncompleteCopy("source"))?.key, "source#copy");
+});
+
+test("UploadJobStore refuses to choose between duplicate unfinished copy jobs", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "zoto-job-store-duplicate-copy-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const store = new UploadJobStore(path.join(directory, "jobs"));
+  for (const key of ["source#copy-one", "source#copy-two"]) {
+    await store.put({
+      key,
+      copyOf: "source",
+      title: "Copy",
+      completed: false,
+      tracks: [],
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+  }
+
+  await assert.rejects(store.findIncompleteCopy("source"), /More than one incomplete new-copy/);
+});
+
+test("UploadJobStore refuses discovery when a saved job is corrupt", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "zoto-job-store-corrupt-copy-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const store = new UploadJobStore(path.join(directory, "jobs"));
+  await store.put({
+    key: "source#copy",
+    copyOf: "source",
+    title: "Copy",
+    completed: false,
+    tracks: [],
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
+  await writeFile(path.join(store.directoryPath, "corrupt.json"), "not json");
+
+  await assert.rejects(store.findIncompleteCopy("source"), /Upload job is invalid/);
 });
 
 test("uploadTrackKey uses YouTube identity when present and local path otherwise", () => {
