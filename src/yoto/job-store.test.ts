@@ -57,6 +57,30 @@ test("UploadJobStore preserves concurrent updates to different jobs", async (t) 
   assert.equal((await readdir(store.directoryPath)).length, jobs.length);
 });
 
+test("UploadJobStore finds one unfinished copy job by its stable source key", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "zoto-job-store-copy-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const store = new UploadJobStore(path.join(directory, "jobs"));
+  await store.put({
+    key: "source#copy",
+    copyOf: "source",
+    title: "Copy",
+    completed: false,
+    tracks: [],
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
+  await store.put({
+    key: "source#complete",
+    copyOf: "source",
+    title: "Complete",
+    completed: true,
+    cardId: "Ab123",
+    tracks: [],
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
+  assert.equal((await store.findIncompleteCopy("source"))?.key, "source#copy");
+});
+
 test("uploadTrackKey uses YouTube identity when present and local path otherwise", () => {
   assert.equal(
     uploadTrackKey({

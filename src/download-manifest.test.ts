@@ -58,3 +58,16 @@ test("DownloadManifest replaces entries and excludes missing files", async (t) =
   assert.equal(recovered[0]?.filePath, newPath);
   assert.equal(recovered[0]?.title, "Replacement");
 });
+
+test("DownloadManifest recovers a local MP3 by video ID across playlist requests", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "zoto-manifest-id-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const filePath = path.join(directory, "track.mp3");
+  await writeFile(filePath, "audio");
+  const manifest = new DownloadManifest(path.join(directory, "downloads.json"));
+  await manifest.record([youtubeTrack(filePath, "1", "https://youtube.test/old-playlist")]);
+
+  const recovered = await manifest.tracksForYoutubeIds(["missing", "1"]);
+  assert.equal(recovered.size, 1);
+  assert.equal(recovered.get("1")?.filePath, filePath);
+});

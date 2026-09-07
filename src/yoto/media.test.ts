@@ -465,6 +465,72 @@ for (const failure of ["response", "checkpoint", "before-request"] as const) {
   });
 }
 
+test("new-copy resumes its stable pending job and protects uncertain creation", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "zoto-new-copy-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const filePath = path.join(directory, "track.mp3");
+  await writeFile(filePath, "audio");
+  const store = new UploadJobStore(path.join(directory, "jobs"));
+  const options = {
+    tracks: [{ filePath, title: "Track", order: 1 }],
+    title: "Copy",
+    getAccessToken: async () => "token",
+    jobStore: store,
+    jobKey: "local:source",
+    newCopy: true,
+  };
+  let uploads = 0;
+  await assert.rejects(
+    uploadPlaylist({
+      ...options,
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.includes("/uploadUrl")) {
+          uploads++;
+          return Response.json({ upload: { uploadUrl: null, uploadId: "id" } });
+        }
+        if (url.includes("/transcoded")) {
+          return Response.json({
+            transcode: {
+              transcodedSha256: "hash",
+              transcodedInfo: { duration: 1, fileSize: 5, format: "mp3" },
+            },
+          });
+        }
+        throw new Error("response lost");
+      },
+    }),
+    /could not reach Yoto/,
+  );
+  const pending = await store.findIncompleteCopy("local:source");
+  assert.ok(pending?.creating);
+  assert.equal(uploads, 1);
+
+  await assert.rejects(
+    uploadPlaylist({
+      ...options,
+      fetch: async () => {
+        throw new Error("must not request");
+      },
+    }),
+    /outcome is unknown/,
+  );
+
+  let contentRequests = 0;
+  const recovered = await uploadPlaylist({
+    ...options,
+    retryCreate: true,
+    fetch: async (input) => {
+      assert.ok(String(input).endsWith("/content"));
+      contentRequests++;
+      return Response.json({ card: { cardId: "Copy1", title: "Copy" } });
+    },
+  });
+  assert.equal(recovered.jobKey, pending?.key);
+  assert.equal(contentRequests, 1);
+  assert.equal(uploads, 1);
+});
+
 test("uploadPlaylist resumes polling a checkpointed upload ID", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "zoto-media-upload-id-"));
   t.after(() => rm(directory, { recursive: true, force: true }));

@@ -355,7 +355,6 @@ export async function uploadPlaylist(options: PlaylistUploadOptions): Promise<Cr
   if ((options.jobStore && !options.jobKey) || (!options.jobStore && options.jobKey)) {
     throw new Error("Upload jobStore and jobKey must be provided together");
   }
-  await checkUploadRecovery(options);
   const tracks = [...options.tracks].sort((left, right) => left.order - right.order);
   const preparedTracks: PreparedTrack[] = [];
   for (const track of tracks) {
@@ -381,9 +380,18 @@ export async function uploadPlaylist(options: PlaylistUploadOptions): Promise<Cr
     });
   }
 
+  const incompleteCopy =
+    options.newCopy && options.jobStore && options.jobKey
+      ? await options.jobStore.findIncompleteCopy(options.jobKey)
+      : null;
   const effectiveJobKey = options.newCopy
-    ? `${options.jobKey ?? "upload"}#${randomUUID()}`
+    ? (incompleteCopy?.key ?? `${options.jobKey ?? "upload"}#${randomUUID()}`)
     : options.jobKey;
+  await checkUploadRecovery({
+    jobStore: options.jobStore,
+    jobKey: effectiveJobKey,
+    retryCreate: options.retryCreate,
+  });
   let existingJob =
     options.jobStore && effectiveJobKey ? await options.jobStore.get(effectiveJobKey) : null;
   if (options.restart && existingJob) {
@@ -438,6 +446,7 @@ export async function uploadPlaylist(options: PlaylistUploadOptions): Promise<Cr
       key: effectiveJobKey,
       title: options.title,
       ...(cardId ? { cardId } : {}),
+      ...(options.newCopy && options.jobKey ? { copyOf: options.jobKey } : {}),
       completed,
       creating: completed ? false : creating,
       tracks: preparedTracks.map((prepared) => ({

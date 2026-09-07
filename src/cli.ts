@@ -28,7 +28,7 @@ const HELP = `${BOLD}Usage:${RESET} node src/cli.ts download [options] <url> [mo
        node src/cli.ts sync [options] [--title TITLE] <url>
        node src/cli.ts [options] [--title TITLE] <url>
        node src/cli.ts auth <login|status|logout>
-       node src/cli.ts upload [--title TITLE] [--restart|--new-copy] <file-or-directory> [...]
+       node src/cli.ts upload [--title TITLE] [--restart|--new-copy] [--retry-create] <file-or-directory> [...]
 
 ${BOLD}Options:${RESET}
   --output-dir DIR    Where MP3s are saved (default: ~/Music)
@@ -47,7 +47,7 @@ ${BOLD}Examples:${RESET}
   node src/cli.ts sync "https://www.youtube.com/playlist?list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI"
 `;
 
-const UPLOAD_HELP = `${BOLD}Usage:${RESET} node src/cli.ts upload [--title TITLE] [--restart|--new-copy] <file-or-directory> [...]
+const UPLOAD_HELP = `${BOLD}Usage:${RESET} node src/cli.ts upload [--title TITLE] [--restart|--new-copy] [--retry-create] <file-or-directory> [...]
 
 Upload MP3 files and create one playlist in your Yoto MYO library.
 Directory contents are naturally ordered; explicit file arguments retain their order.
@@ -201,9 +201,6 @@ async function runUploadCommand(args: string[]): Promise<void> {
     return;
   }
   if (positionals.length === 0) throw new Error("upload requires an MP3 file or directory");
-  if (values["retry-create"] && values["new-copy"]) {
-    throw new Error("--retry-create and --new-copy cannot be used together");
-  }
   if (values.restart && values["new-copy"]) {
     throw new Error("--restart and --new-copy cannot be used together");
   }
@@ -257,9 +254,6 @@ async function runSyncCommand(args: string[]): Promise<void> {
     return;
   }
   if (urls.length !== 1) throw new Error("sync requires exactly one YouTube URL");
-  if (values["retry-create"] && values["new-copy"]) {
-    throw new Error("--retry-create and --new-copy cannot be used together");
-  }
   if (values.restart && values["new-copy"]) {
     throw new Error("--restart and --new-copy cannot be used together");
   }

@@ -11,14 +11,31 @@ export interface ProbeResult {
 
 export function parseProbeOutput(stdout: string): ProbeResult {
   const line = stdout.split(/\r?\n/).find((l) => l.trim().length > 0) ?? "";
-  const [playlist, playlistTitle, countStr, videoTitle] = line.split("|");
-  const isPlaylist = playlist !== undefined && playlist !== "" && playlist !== "NA";
+  try {
+    const value: unknown = JSON.parse(line.replace(/([:,])NA(?=,|})/g, "$1null"));
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid");
+    const fields = value as {
+      playlist?: unknown;
+      playlistTitle?: unknown;
+      count?: unknown;
+      title?: unknown;
+    };
+    const isPlaylist = typeof fields.playlist === "string" && fields.playlist.length > 0;
 
-  return {
-    kind: isPlaylist ? "playlist" : "single",
-    title: isPlaylist ? (playlistTitle ?? "") : (videoTitle ?? ""),
-    count: Number(countStr) || 0,
-  };
+    return {
+      kind: isPlaylist ? "playlist" : "single",
+      title: isPlaylist
+        ? typeof fields.playlistTitle === "string"
+          ? fields.playlistTitle
+          : ""
+        : typeof fields.title === "string"
+          ? fields.title
+          : "",
+      count: typeof fields.count === "number" && Number.isFinite(fields.count) ? fields.count : 0,
+    };
+  } catch {
+    return { kind: "single", title: "", count: 0 };
+  }
 }
 
 function errorText(error: unknown): string {
@@ -34,7 +51,7 @@ export async function probeUrl(url: string, ytDlpBin: string): Promise<ProbeResu
       [
         "--flat-playlist",
         "--print",
-        "%(playlist)s|%(playlist_title)s|%(playlist_count)s|%(title)s",
+        '{"playlist":%(playlist)j,"playlistTitle":%(playlist_title)j,"count":%(playlist_count)j,"title":%(title)j}',
         "--no-warnings",
         "--",
         url,

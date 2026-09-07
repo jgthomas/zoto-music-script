@@ -1,7 +1,16 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import type { Config } from "./config.ts";
-import { buildArgs, buildOutputTemplate, parseOutputLine } from "./download.ts";
+import {
+  buildArgs,
+  buildOutputTemplate,
+  parseOutputLine,
+  recoverArchivedTracks,
+} from "./download.ts";
+import { DownloadManifest } from "./download-manifest.ts";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { ProbeResult } from "./probe.ts";
 
 const config: Config = {
@@ -113,11 +122,54 @@ test("parseOutputLine normalizes yt-dlp unavailable values", () => {
 test("parseOutputLine detects archive skip message with 'the'", () => {
   const r = parseOutputLine("[download] dQw4w9WgXcQ has already been recorded in the archive");
   assert.equal(r.kind, "skipped");
+  if (r.kind === "skipped") assert.equal(r.id, "dQw4w9WgXcQ");
 });
 
 test("parseOutputLine detects legacy archive skip message without 'the'", () => {
   const r = parseOutputLine("[download] dQw4w9WgXcQ has already been recorded in archive");
   assert.equal(r.kind, "skipped");
+});
+
+test("parseOutputLine detects an explicit playlist position", () => {
+  assert.deepEqual(parseOutputLine("[download] Downloading item 2 of 10"), {
+    kind: "playlist-item",
+    order: 2,
+  });
+});
+
+test("recoverArchivedTracks reattaches archive-skipped videos to the current playlist", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "zoto-archive-recovery-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const filePath = path.join(directory, "old.mp3");
+  await writeFile(filePath, "audio");
+  const manifest = new DownloadManifest(path.join(directory, "downloads.json"));
+  await manifest.record([
+    {
+      filePath,
+      title: "Original",
+      order: 9,
+      source: {
+        kind: "youtube",
+        id: "video",
+        url: "https://youtube.test/watch/video",
+        requestUrl: "https://youtube.test/old",
+      },
+    },
+  ]);
+  const recovered = await recoverArchivedTracks(
+    manifest,
+    [{ id: "video", order: 2 }],
+    "https://youtube.test/new",
+    { kind: "playlist", title: "New playlist", count: 2 },
+  );
+  assert.deepEqual(
+    recovered.map((track) => ({
+      order: track.order,
+      requestUrl: track.source?.requestUrl,
+      playlistIndex: track.source?.playlistIndex,
+    })),
+    [{ order: 2, requestUrl: "https://youtube.test/new", playlistIndex: 2 }],
+  );
 });
 
 test("parseOutputLine detects a destination", () => {

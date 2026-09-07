@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { localError } from "../local-errors.ts";
 import type { LocalTrack } from "../tracks.ts";
@@ -23,6 +23,7 @@ export interface UploadJob {
   cardId?: string;
   completed: boolean;
   creating?: boolean;
+  copyOf?: string;
   tracks: UploadJobTrack[];
   updatedAt: string;
 }
@@ -65,6 +66,7 @@ function isJob(value: unknown): value is UploadJob {
     typeof job.title === "string" &&
     typeof job.completed === "boolean" &&
     (job.creating === undefined || typeof job.creating === "boolean") &&
+    (job.copyOf === undefined || (typeof job.copyOf === "string" && job.copyOf.length > 0)) &&
     (job.cardId === undefined || (typeof job.cardId === "string" && job.cardId.length > 0)) &&
     (!job.completed || (typeof job.cardId === "string" && job.creating !== true)) &&
     Array.isArray(job.tracks) &&
@@ -120,6 +122,43 @@ export class UploadJobStore {
       }
       throw localError(error, "Reading upload job", this.jobPath(key));
     }
+  }
+
+  async findIncompleteCopy(copyOf: string): Promise<UploadJob | null> {
+    let entries: string[];
+    try {
+      entries = await readdir(this.directoryPath);
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT")
+        return null;
+      throw localError(error, "Reading upload jobs", this.directoryPath);
+    }
+    const matches: UploadJob[] = [];
+    for (const entry of entries) {
+      if (!entry.endsWith(".json")) continue;
+      const jobPath = path.join(this.directoryPath, entry);
+      try {
+        const value: unknown = JSON.parse(await readFile(jobPath, "utf8"));
+        const stored = value as Partial<StoredJob>;
+        if (stored.version !== 1 || !isJob(stored.job)) {
+          throw new Error("upload job is invalid");
+        }
+        if (stored.job.copyOf === copyOf && !stored.job.completed) {
+          matches.push(stored.job);
+        }
+      } catch (error) {
+        throw new Error(
+          `Upload job is invalid: ${jobPath}. Preserve this file and restore a valid backup; deleting it can lose the playlist ID and cause duplicates.`,
+          { cause: error },
+        );
+      }
+    }
+    if (matches.length > 1) {
+      throw new Error(
+        `More than one incomplete new-copy upload exists for this source. Resolve the saved jobs before creating another copy.`,
+      );
+    }
+    return matches[0] ?? null;
   }
 
   async put(job: UploadJob): Promise<void> {

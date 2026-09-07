@@ -109,8 +109,9 @@ If the playlist already exists, do not use --retry-create: doing so can create
 a duplicate. Keep its content ID for recovery; automatic attachment to an existing
 playlist is not currently implemented. When the response was received but the
 local save failed, the error prints the returned content ID.
---restart preserves an uncertain creation marker. --retry-create cannot be
-combined with --new-copy, which intentionally starts a separate job.
+--restart preserves an uncertain creation marker. For an uncertain --new-copy
+operation, rerun with both --new-copy --retry-create; its saved copy job is found
+and resumed instead of starting a fresh copy.
 An interruption immediately before the creation request can also leave this
 marker; checking the library is still required. This protection applies to jobs
 created with this version; it cannot detect uncertain requests from older versions.

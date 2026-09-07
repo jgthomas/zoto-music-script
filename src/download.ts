@@ -36,10 +36,16 @@ interface DownloadedTrackData {
   filePath: string;
 }
 
+export interface ArchivedSkip {
+  id: string;
+  order: number;
+}
+
 export type OutputLineResult =
   | { kind: "title"; title: string }
   | { kind: "progress"; rendered: string; data: ProgressData }
-  | { kind: "skipped" }
+  | { kind: "skipped"; id?: string }
+  | { kind: "playlist-item"; order: number }
   | { kind: "track"; track: DownloadedTrackData }
   | { kind: "destination"; destination: string }
   | { kind: "none" };
@@ -118,11 +124,17 @@ export function parseOutputLine(line: string): OutputLineResult {
     return { kind: "progress", rendered: renderProgressLine(progress), data: progress };
   }
 
+  const playlistItem = /\[download\]\s+Downloading item\s+(\d+)\s+of\s+\d+/.exec(trimmed);
+  if (playlistItem) return { kind: "playlist-item", order: Number(playlistItem[1]) };
+
   if (
     trimmed.includes("has already been recorded in the archive") ||
     trimmed.includes("has already been recorded in archive")
   ) {
-    return { kind: "skipped" };
+    const id = /\[download\]\s+([^\s]+)\s+has already been recorded in(?: the)? archive/.exec(
+      trimmed,
+    )?.[1];
+    return { kind: "skipped", ...(id ? { id } : {}) };
   }
 
   const dest = /(?:DESTINATION:|Destination: )(.+)$/.exec(trimmed);
@@ -131,6 +143,37 @@ export function parseOutputLine(line: string): OutputLineResult {
   }
 
   return { kind: "none" };
+}
+
+export async function recoverArchivedTracks(
+  manifest: DownloadManifest | undefined,
+  skippedTracks: ArchivedSkip[],
+  url: string,
+  probe: ProbeResult,
+  onMissing?: (id: string) => void,
+): Promise<LocalTrack[]> {
+  const recoveredById =
+    (await manifest?.tracksForYoutubeIds(skippedTracks.map(({ id }) => id))) ?? new Map();
+  return skippedTracks.flatMap(({ id, order }) => {
+    const previous = recoveredById.get(id);
+    if (!previous?.source) {
+      onMissing?.(id);
+      return [];
+    }
+    return [
+      {
+        ...previous,
+        order,
+        source: {
+          ...previous.source,
+          requestUrl: url,
+          ...(probe.kind === "playlist"
+            ? { playlistTitle: probe.title, playlistIndex: order }
+            : {}),
+        },
+      },
+    ];
+  });
 }
 
 export function downloadVideo(opts: DownloadOptions): Promise<DownloadResult> {
@@ -142,6 +185,9 @@ export function downloadVideo(opts: DownloadOptions): Promise<DownloadResult> {
     let stdoutBuf = "";
     let stderrBuf = "";
     const downloadedTracks: LocalTrack[] = [];
+    const skippedTracks: ArchivedSkip[] = [];
+    let encounteredTracks = 0;
+    let announcedPlaylistOrder: number | undefined;
     let skippedAny = false;
     const diagnostics: string[] = [];
     let settled = false;
@@ -155,9 +201,19 @@ export function downloadVideo(opts: DownloadOptions): Promise<DownloadResult> {
         case "progress":
           opts.callbacks?.onProgress?.(result.rendered);
           break;
+        case "playlist-item":
+          announcedPlaylistOrder = result.order;
+          break;
         case "skipped":
+          encounteredTracks = announcedPlaylistOrder ?? encounteredTracks + 1;
+          announcedPlaylistOrder = undefined;
           skippedAny = true;
-          opts.callbacks?.onStatus?.("skipped (already in archive)");
+          if (result.id) skippedTracks.push({ id: result.id, order: encounteredTracks });
+          opts.callbacks?.onStatus?.(
+            result.id
+              ? `skipped ${result.id} (already in archive)`
+              : "skipped (already in archive)",
+          );
           break;
         case "track": {
           const data = result.track;
@@ -165,10 +221,12 @@ export function downloadVideo(opts: DownloadOptions): Promise<DownloadResult> {
             typeof data.playlistIndex === "number" && data.playlistIndex > 0
               ? data.playlistIndex
               : undefined;
+          encounteredTracks = playlistIndex ?? announcedPlaylistOrder ?? encounteredTracks + 1;
+          announcedPlaylistOrder = undefined;
           const track: LocalTrack = {
             filePath: data.filePath,
             title: data.title,
-            order: playlistIndex ?? downloadedTracks.length + 1,
+            order: playlistIndex ?? encounteredTracks,
             source: {
               kind: "youtube",
               id: data.id,
@@ -225,10 +283,17 @@ export function downloadVideo(opts: DownloadOptions): Promise<DownloadResult> {
       if (stderrBuf) handleLine(stderrBuf);
       if (code === 0) {
         void (async () => {
-          await opts.manifest?.record(downloadedTracks);
-          const recovered = (await opts.manifest?.tracksForRequest(opts.url)) ?? [];
+          const recovered = await recoverArchivedTracks(
+            opts.manifest,
+            skippedTracks,
+            opts.url,
+            opts.probe,
+            (id) => opts.callbacks?.onStatus?.(`archive entry ${id} has no local MP3 to recover`),
+          );
+          const recorded = [...recovered, ...downloadedTracks];
+          await opts.manifest?.record(recorded);
           const bySourceId = new Map<string, LocalTrack>();
-          for (const track of [...recovered, ...downloadedTracks]) {
+          for (const track of recorded) {
             bySourceId.set(track.source?.id ?? track.filePath, track);
           }
           const tracks = [...bySourceId.values()].sort((left, right) => left.order - right.order);

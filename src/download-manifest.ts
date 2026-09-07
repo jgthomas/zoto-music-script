@@ -64,17 +64,32 @@ export class DownloadManifest {
     return existing.sort((left, right) => left.order - right.order);
   }
 
+  async tracksForYoutubeIds(ids: Iterable<string>): Promise<Map<string, LocalTrack>> {
+    const wanted = new Set(ids);
+    const data = await this.read();
+    const found = new Map<string, LocalTrack>();
+    for (const track of data.tracks) {
+      const id = track.source?.kind === "youtube" ? track.source.id : undefined;
+      if (!id || !wanted.has(id)) continue;
+      try {
+        await access(track.filePath);
+        found.set(id, track);
+      } catch {
+        // The archive entry cannot be recovered once its local MP3 is gone.
+      }
+    }
+    return found;
+  }
+
   async record(tracks: LocalTrack[]): Promise<void> {
     if (tracks.length === 0) return;
     const data = await this.read();
-    const replacements = new Map(
-      tracks
-        .filter((track) => track.source?.kind === "youtube")
-        .map((track) => [`${track.source?.requestUrl}\0${track.source?.id}`, track]),
+    const replacements = new Set(
+      tracks.filter((track) => track.source?.kind === "youtube").map((track) => track.source?.id),
     );
     const retained = data.tracks.filter((track) => {
       if (track.source?.kind !== "youtube") return true;
-      return !replacements.has(`${track.source.requestUrl}\0${track.source.id}`);
+      return !replacements.has(track.source.id);
     });
     const next: ManifestData = { version: 1, tracks: [...retained, ...tracks] };
     const directory = path.dirname(this.filePath);
