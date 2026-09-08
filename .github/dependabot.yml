@@ -13,6 +13,12 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # TypeScript 7 lacks the stable compiler API required by typescript-eslint.
+      # Revisit when TypeScript 7.1 and compatible tooling are available.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: github-actions
     directory: /
