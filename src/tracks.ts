@@ -3,7 +3,7 @@ import path from "node:path";
 import { parseFile } from "music-metadata";
 import { localError } from "./local-errors.ts";
 
-export interface YouTubeTrackSource {
+interface YouTubeTrackSource {
   kind: "youtube";
   id: string;
   url: string;

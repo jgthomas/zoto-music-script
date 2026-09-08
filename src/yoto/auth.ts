@@ -8,7 +8,7 @@ const AUTHORIZE_URL = "https://login.yotoplay.com/authorize";
 const TOKEN_URL = "https://login.yotoplay.com/oauth/token";
 const AUDIENCE = "https://api.yotoplay.com";
 export const YOTO_SCOPES = "user:content:manage offline_access";
-export const DEFAULT_REDIRECT_URI = "http://127.0.0.1:8787/callback";
+const DEFAULT_REDIRECT_URI = "http://127.0.0.1:8787/callback";
 const EXPIRY_BUFFER_MS = 30_000;
 
 interface TokenResponse {

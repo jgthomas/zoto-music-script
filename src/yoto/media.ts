@@ -17,7 +17,7 @@ import { checkUploadRecovery } from "./recovery.ts";
 
 const API_URL = "https://api.yotoplay.com";
 
-export interface TranscodedInfo {
+interface TranscodedInfo {
   duration: number;
   fileSize: number;
   channels?: "stereo" | "mono";
