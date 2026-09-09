@@ -77,19 +77,36 @@ test("uploadSingleTrack uploads, polls, and creates content", async (t) => {
   t.after(() => rm(directory, { recursive: true, force: true }));
   const filePath = path.join(directory, "track.mp3");
   await writeFile(filePath, "fake mp3 data");
+  const sourceSha256 = await sha256File(filePath);
   const requests: Array<{ url: string; method: string; body?: BodyInit | null }> = [];
   let transcodeChecks = 0;
   const fetchMock: typeof fetch = async (input, init) => {
     const url = String(input);
     const method = init?.method ?? "GET";
+    const headers = new Headers(init?.headers);
     requests.push({ url, method, body: init?.body });
-    if (url.includes("/uploadUrl")) {
+    if (
+      url ===
+      "https://api.yotoplay.com/media/transcode/audio/uploadUrl?sha256=" +
+        sourceSha256 +
+        "&filename=track.mp3"
+    ) {
+      assert.equal(method, "GET");
+      assert.equal(headers.get("authorization"), "Bearer token");
+      assert.equal(headers.get("accept"), "application/json");
       return Response.json({
         upload: { uploadUrl: "https://uploads.example/audio", uploadId: "id" },
       });
     }
-    if (url === "https://uploads.example/audio") return new Response(null, { status: 200 });
-    if (url.includes("/transcoded")) {
+    if (url === "https://uploads.example/audio") {
+      assert.equal(method, "PUT");
+      assert.equal(headers.get("content-type"), "audio/mpeg");
+      return new Response(null, { status: 200 });
+    }
+    if (url === "https://api.yotoplay.com/media/upload/id/transcoded?loudnorm=false") {
+      assert.equal(method, "GET");
+      assert.equal(headers.get("authorization"), "Bearer token");
+      assert.equal(headers.get("accept"), "application/json");
       transcodeChecks++;
       if (transcodeChecks === 1) return Response.json({ transcode: {} });
       return Response.json({
@@ -99,7 +116,15 @@ test("uploadSingleTrack uploads, polls, and creates content", async (t) => {
         },
       });
     }
-    if (url.endsWith("/content")) {
+    if (url === "https://api.yotoplay.com/content") {
+      assert.equal(method, "POST");
+      assert.equal(headers.get("authorization"), "Bearer token");
+      assert.equal(headers.get("accept"), "application/json");
+      assert.equal(headers.get("content-type"), "application/json");
+      const body = JSON.parse(String(init?.body));
+      assert.equal(body.title, "Test playlist");
+      assert.equal(body.content.chapters[0].tracks[0].trackUrl, "yoto:#media-hash");
+      assert.equal(body.content.chapters[0].tracks[0].channels, "stereo");
       return Response.json({ card: { cardId: "Ab123", title: "Test playlist" } });
     }
     throw new Error(`Unexpected request: ${url}`);

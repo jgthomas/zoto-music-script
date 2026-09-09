@@ -244,6 +244,77 @@ printf ' across chunks\\n' >&2
   );
 });
 
+test("downloadVideo reports a missing yt-dlp executable", async () => {
+  await assert.rejects(
+    downloadVideo({
+      url: "https://youtube.test/video",
+      probe: { kind: "single", title: "Video", count: 0 },
+      config: { ...config, ytDlpBin: "/tmp/zoto-missing-yt-dlp" },
+    }),
+    /Could not start .*zoto-missing-yt-dlp/,
+  );
+});
+
+test("downloadVideo includes diagnostics from a failed yt-dlp process and does not persist tracks", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "zoto-download-failure-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const trackPath = path.join(directory, "track.mp3");
+  await writeFile(trackPath, "audio");
+  const executable = path.join(directory, "fake-yt-dlp");
+  await writeFile(
+    executable,
+    `#!/bin/sh
+printf 'TRACK:{"id":"video","title":"Video","filePath":"${trackPath}"}\\n'
+printf 'the downloader failed\\n' >&2
+exit 7
+`,
+    { mode: 0o700 },
+  );
+  await chmod(executable, 0o700);
+  const manifest = new DownloadManifest(path.join(directory, "downloads.json"));
+
+  await assert.rejects(
+    downloadVideo({
+      url: "https://youtube.test/video",
+      probe: { kind: "single", title: "Video", count: 0 },
+      config: { ...config, ytDlpBin: executable },
+      manifest,
+    }),
+    /yt-dlp exited with code 7\nthe downloader failed/,
+  );
+  assert.deepEqual(await manifest.tracksForRequest("https://youtube.test/video"), []);
+});
+
+test("downloadVideo propagates manifest checkpoint failures", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "zoto-download-manifest-failure-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const trackPath = path.join(directory, "track.mp3");
+  await writeFile(trackPath, "audio");
+  const executable = path.join(directory, "fake-yt-dlp");
+  await writeFile(
+    executable,
+    `#!/bin/sh
+printf 'TRACK:{"id":"video","title":"Video","filePath":"${trackPath}"}\\n'
+`,
+    { mode: 0o700 },
+  );
+  await chmod(executable, 0o700);
+  const manifest = new DownloadManifest(path.join(directory, "downloads.json"));
+  manifest.record = async () => {
+    throw new Error("simulated manifest failure");
+  };
+
+  await assert.rejects(
+    downloadVideo({
+      url: "https://youtube.test/video",
+      probe: { kind: "single", title: "Video", count: 0 },
+      config: { ...config, ytDlpBin: executable },
+      manifest,
+    }),
+    /simulated manifest failure/,
+  );
+});
+
 test("parseOutputLine detects a destination", () => {
   assert.deepEqual(parseOutputLine("[download] Destination: /tmp/music/Song.mp3"), {
     kind: "destination",
