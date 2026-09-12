@@ -117,18 +117,23 @@ For an uncertain --new-copy operation, rerun with both --new-copy
 
 ### Options
 
-| Flag                      | Default                           | Description                                     |
-| ------------------------- | --------------------------------- | ----------------------------------------------- |
-| `--output-dir`&nbsp;`DIR` | `~/Music`                         | MP3 destination                                 |
-| `--quality`&nbsp;`N`      | `0`                               | Audio quality (0 = best, 9 = worst)             |
-| `--no-thumbnail`          | (embed&nbsp;by&nbsp;default)      | Skip thumbnail embedding                        |
-| `--archive`&nbsp;`FILE`   | `~/.cache/zoto-music/archive.txt` | Skip downloaded videos                          |
-| `--yt-dlp`&nbsp;`PATH`    | `yt-dlp`                          | yt-dlp executable path                          |
-| `--title`&nbsp;`TITLE`    | YouTube&nbsp;title                | Yoto playlist title                             |
-| `--restart`               |                                   | Reprocess cached work and update content        |
-| `--new-copy`              |                                   | Create separate content intentionally           |
-| `--retry-create`          |                                   | Retry an uncertain creation after checking Yoto |
-| `-h,`&nbsp;`--help`       |                                   | Show help                                       |
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr><td nowrap><code>--output-dir&nbsp;DIR</code></td><td nowrap><code>~/Music</code></td><td>MP3 destination</td></tr>
+    <tr><td nowrap><code>--quality&nbsp;N</code></td><td nowrap><code>0</code></td><td>Audio quality (0 = best, 9 = worst)</td></tr>
+    <tr><td nowrap><code>--no-thumbnail</code></td><td nowrap>(embed&nbsp;by&nbsp;default)</td><td>Skip thumbnail embedding</td></tr>
+    <tr><td nowrap><code>--archive&nbsp;FILE</code></td><td nowrap><code>~/.cache/zoto-music/archive.txt</code></td><td>Skip downloaded videos</td></tr>
+    <tr><td nowrap><code>--yt-dlp&nbsp;PATH</code></td><td nowrap><code>yt-dlp</code></td><td>yt-dlp executable path</td></tr>
+    <tr><td nowrap><code>--title&nbsp;TITLE</code></td><td nowrap>YouTube&nbsp;title</td><td>Yoto playlist title</td></tr>
+    <tr><td nowrap><code>--restart</code></td><td></td><td>Reprocess cached work and update content</td></tr>
+    <tr><td nowrap><code>--new-copy</code></td><td></td><td>Create separate content intentionally</td></tr>
+    <tr><td nowrap><code>--retry-create</code></td><td></td><td>Retry an uncertain creation after checking Yoto</td></tr>
+    <tr><td nowrap><code>-h,&nbsp;--help</code></td><td></td><td>Show help</td></tr>
+  </tbody>
+</table>
 
 ### Examples
 
