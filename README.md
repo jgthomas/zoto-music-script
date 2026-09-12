@@ -117,18 +117,18 @@ For an uncertain --new-copy operation, rerun with both --new-copy
 
 ### Options
 
-| Flag               | Default                           | Description                                         |
-| ------------------ | --------------------------------- | --------------------------------------------------- |
-| `--output-dir DIR` | `~/Music`                         | Where MP3s are saved                                |
-| `--quality N`      | `0`                               | Audio quality (0 = best, 9 = worst)                 |
-| `--no-thumbnail`   | (embed by default)                | Skip embedding the video thumbnail                  |
-| `--archive FILE`   | `~/.cache/zoto-music/archive.txt` | Skip videos already downloaded                      |
-| `--yt-dlp PATH`    | `yt-dlp`                          | Path to the yt-dlp binary                           |
-| `--title TITLE`    | YouTube title                     | Yoto playlist title                                 |
-| `--restart`        |                                   | Reprocess cached work and update content            |
-| `--new-copy`       |                                   | Intentionally create separate content               |
-| `--retry-create`   |                                   | Retry uncertain creation after checking the library |
-| `-h, --help`       |                                   | Show help                                           |
+| Flag                      | Default                           | Description                                     |
+| ------------------------- | --------------------------------- | ----------------------------------------------- |
+| `--output-dir`&nbsp;`DIR` | `~/Music`                         | MP3 destination                                 |
+| `--quality`&nbsp;`N`      | `0`                               | Audio quality (0 = best, 9 = worst)             |
+| `--no-thumbnail`          | (embed&nbsp;by&nbsp;default)      | Skip thumbnail embedding                        |
+| `--archive`&nbsp;`FILE`   | `~/.cache/zoto-music/archive.txt` | Skip downloaded videos                          |
+| `--yt-dlp`&nbsp;`PATH`    | `yt-dlp`                          | yt-dlp executable path                          |
+| `--title`&nbsp;`TITLE`    | YouTube&nbsp;title                | Yoto playlist title                             |
+| `--restart`               |                                   | Reprocess cached work and update content        |
+| `--new-copy`              |                                   | Create separate content intentionally           |
+| `--retry-create`          |                                   | Retry an uncertain creation after checking Yoto |
+| `-h,`&nbsp;`--help`       |                                   | Show help                                       |
 
 ### Examples
 
