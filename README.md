@@ -8,6 +8,12 @@ Download audio from YouTube and create Yoto Make Your Own playlists.
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) on PATH
 - [ffmpeg](https://ffmpeg.org/) on PATH (used to convert to MP3)
 
+## Install
+
+```sh
+npm install
+```
+
 ## Usage
 
 The default workflow downloads a YouTube video or playlist and uploads the
@@ -36,10 +42,8 @@ Yoto content:
 npm start -- download <youtube-url> [more-urls...]
 ```
 
-Downloads produce structured local track records containing the source video ID,
-title, URL, playlist position, and final MP3 path. These are retained in
-`~/.local/state/zoto-music/downloads.json` (or beneath `$XDG_STATE_HOME`) so a
-later run can recover local files skipped by yt-dlp's download archive.
+The tool remembers previously downloaded videos so it can use their local MP3s
+when yt-dlp skips them through its download archive.
 
 ## Yoto authentication
 
@@ -94,10 +98,10 @@ npm start -- upload --restart ./album/
 npm start -- upload --new-copy ./album/
 ```
 
-Before creating a new playlist, the tool saves a pending creation marker. If
-the request loses its response, the process exits, or the final local save fails,
-the next run stops with an "outcome is unknown" message instead of creating again.
-Check your Yoto library. Only if the playlist was not created, explicitly retry:
+If a playlist creation request loses its response, the process exits, or the
+final local save fails, the next run stops with an "outcome is unknown" message
+instead of creating another playlist. Check your Yoto library. Only if the
+playlist was not created, explicitly retry:
 
 ```sh
 npm start -- upload --retry-create ./album/
@@ -106,25 +110,10 @@ npm start -- sync --retry-create <youtube-url>
 ```
 
 If the playlist already exists, do not use --retry-create: doing so can create
-a duplicate. Keep its content ID for recovery; automatic attachment to an existing
-playlist is not currently implemented. When the response was received but the
-local save failed, the error prints the returned content ID.
---restart preserves an uncertain creation marker. For an uncertain --new-copy
-operation, rerun with both --new-copy --retry-create; its saved copy job is found
-and resumed instead of starting a fresh copy.
-An interruption immediately before the creation request can also leave this
-marker; checking the library is still required. This protection applies to jobs
-created with this version; it cannot detect uncertain requests from older versions.
-
-Upload jobs are stored with user-only permissions in
-`~/.local/state/zoto-music/yoto-jobs/` (or beneath `$XDG_STATE_HOME`). Each job
-is stored in its own atomic JSON file, so concurrent uploads for different
-sources cannot overwrite one another. Jobs record local file fingerprints,
-source and transcoded hashes, pending upload IDs, and created Yoto content IDs.
-Do not run two uploads for the same source concurrently.
-
-The download and upload layers share a source-neutral local track model. Local
-MP3 directories are naturally ordered and use embedded titles when available.
+duplicate. If the response was received but the local save failed, the error
+prints the returned content ID; keep it for recovery.
+For an uncertain --new-copy operation, rerun with both --new-copy
+--retry-create. Do not run two uploads for the same source concurrently.
 
 ### Options
 
@@ -135,7 +124,7 @@ MP3 directories are naturally ordered and use embedded titles when available.
 | `--no-thumbnail`   | (embed by default)                | Skip embedding the video thumbnail                  |
 | `--archive FILE`   | `~/.cache/zoto-music/archive.txt` | Skip videos already downloaded                      |
 | `--yt-dlp PATH`    | `yt-dlp`                          | Path to the yt-dlp binary                           |
-| `--title TITLE`    | YouTube title                     | Yoto playlist title (`sync` only)                   |
+| `--title TITLE`    | YouTube title                     | Yoto playlist title                                 |
 | `--restart`        |                                   | Reprocess cached work and update content            |
 | `--new-copy`       |                                   | Intentionally create separate content               |
 | `--retry-create`   |                                   | Retry uncertain creation after checking the library |
@@ -145,13 +134,13 @@ MP3 directories are naturally ordered and use embedded titles when available.
 
 ```sh
 # Seamless download and Yoto upload
-node src/cli.ts sync "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+npm start -- sync "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 
 # Explicit download only
-node src/cli.ts download "https://www.youtube.com/playlist?list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI"
+npm start -- download "https://www.youtube.com/playlist?list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI"
 
 # Seamless workflow with a custom local destination and Yoto title
-node src/cli.ts sync --output-dir ~/Music/New --title "New songs" "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+npm start -- sync --output-dir ~/Music/New --title "New songs" "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 ```
 
 ## Errors and recovery
@@ -171,24 +160,8 @@ bodies, authentication tokens, and signed upload URLs are not printed.
 | Invalid upload job                        | Preserve the named state file and restore a valid backup. Deleting it can lose the content ID and create duplicates.                     |
 | Local save failure                        | Fix disk space or permissions. If token rotation could not be saved, sign in again. If content was created, keep the printed content ID. |
 
-API and authentication requests have a 30-second deadline, including reading
-the response. Audio uploads have a ten-minute deadline. Transcoding polls are
-bounded by 120 attempts and ten minutes, honoring `Retry-After` when it fits
-within that window. Creation and token refresh requests are never automatically
-retried. Uncertain or corrupt job state stops sync before YouTube inspection
-or downloading begins.
-
-## Development commands
-
-```sh
-npm install        # install dev dependencies
-npm run typecheck  # type-check with tsc --noEmit
-npm start -- <url> # download and upload to Yoto
-```
-
 ## Notes
 
 - Re-running a download skips videos already in the archive (keyed by video ID).
-- Age-restricted or members-only videos may require a cookies file; pass a custom
-  yt-dlp via `--yt-dlp` or add cookies support later.
+- Age-restricted or members-only videos may not download.
 - Downloads are sequential.
