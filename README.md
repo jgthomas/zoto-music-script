@@ -162,6 +162,6 @@ bodies, authentication tokens, and signed upload URLs are not printed.
 
 ## Notes
 
-- Re-running a download skips videos already in the archive (keyed by video ID).
+- Re-running a download skips videos already in the archive.
 - Age-restricted or members-only videos may not download.
 - Downloads are sequential.
