@@ -5,6 +5,15 @@ import os from "node:os";
 import path from "node:path";
 import { discoverLocalTracks } from "./tracks.ts";
 
+// A short, valid MP3 with an ID3v2.4 title, generated offline with ffmpeg.
+// Keep the audio bytes here so CI does not need ffmpeg or a network fixture.
+const taggedMp3 = Buffer.from(
+  [
+    "SUQzBAAAAAAAQFRJVDIAAAAUAAADRW1iZWRkZWQgTVAzIHRpdGxlAFRTU0UAAAAOAAADTGF2ZjYzLjEuMTAyAAAAAAAAAAAAAAD/+xDEAAPAAAGkAAAAIAAANIAAAARMQU1FNC4wVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7EsQpg8AAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7EMRTg8AAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//sSxH0DwAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//sQxKcDwAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+xLE0IPAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU=",
+  ].join(""),
+  "base64",
+);
+
 test("discoverLocalTracks naturally orders MP3s in a directory", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "zoto-tracks-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -64,6 +73,16 @@ test("discoverLocalTracks prefers an embedded ID3 title", async (t) => {
   await writeFile(filePath, Buffer.concat([tagHeader, body]));
   const tracks = await discoverLocalTracks([filePath]);
   assert.equal(tracks[0]?.title, "Embedded title");
+});
+
+test("discoverLocalTracks reads an ID3v2.4 title from a valid MP3", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "zoto-track-real-mp3-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const filePath = path.join(directory, "Filename title.mp3");
+  await writeFile(filePath, taggedMp3);
+
+  const tracks = await discoverLocalTracks([filePath]);
+  assert.equal(tracks[0]?.title, "Embedded MP3 title");
 });
 
 test("discoverLocalTracks rejects empty directories and unsupported files", async (t) => {

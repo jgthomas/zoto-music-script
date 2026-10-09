@@ -31,6 +31,6 @@
     "typescript-eslint": "^8.69.0"
   },
   "dependencies": {
-    "music-metadata": "^11.14.0"
+    "music-metadata": "^12.1.0"
   }
 }
