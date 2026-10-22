@@ -4,7 +4,7 @@ Download audio from YouTube and create Yoto Make Your Own playlists.
 
 ## Requirements
 
-- Node.js 26.11.1 (run `fnm use` in this directory; `.nvmrc` selects it)
+- Node.js (run `fnm use` in this directory to select the version in `.nvmrc`)
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) on PATH
 - [ffmpeg](https://ffmpeg.org/) on PATH (used to convert to MP3)
 
