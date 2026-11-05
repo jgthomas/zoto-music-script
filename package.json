@@ -32,5 +32,8 @@
   },
   "dependencies": {
     "music-metadata": "^12.3.2"
+  },
+  "overrides": {
+    "minimatch@^10.0.0": "^11.0.4"
   }
 }
