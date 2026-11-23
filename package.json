@@ -25,13 +25,13 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.6",
     "eslint": "^10.15.0",
-    "knip": "^6.45.1",
+    "knip": "^6.46.1",
     "prettier": "^3.10.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.73.0"
   },
   "dependencies": {
-    "music-metadata": "^12.5.0"
+    "music-metadata": "^12.7.0"
   },
   "overrides": {
     "minimatch@^10.0.0": "^11.0.4"
