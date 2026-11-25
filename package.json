@@ -31,7 +31,7 @@
     "typescript-eslint": "^8.73.0"
   },
   "dependencies": {
-    "music-metadata": "^12.7.0"
+    "music-metadata": "^12.8.0"
   },
   "overrides": {
     "minimatch@^10.0.0": "^11.0.4"
